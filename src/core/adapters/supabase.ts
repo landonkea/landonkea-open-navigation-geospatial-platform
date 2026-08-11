@@ -223,3 +223,64 @@ export async function fetchParticipants(rideId: string): Promise<RideParticipant
   if (error) throw new Error(`Failed to fetch participants: ${error.message}`);
   return (data ?? []) as RideParticipant[]; // default to an empty list, never null, simpler for callers
 }
+
+// ── Admin auth + ride management ────────────────────────────────────
+// WHAT: unlike regular riders/spectators, the ~10 admins genuinely log
+// in (build prompt's "Accounts / auth" section), using Supabase Auth's
+// plain email+password sign-in, the simplest option and enough for a
+// small, known admin list.
+
+/**
+ * Signs in an admin with email + password. Throws a plain-language
+ * error on failure (wrong password, unknown email, account not yet
+ * granted admin access), the caller shows this directly to the user
+ * rather than a generic "login failed".
+ *
+ * @returns the signed-in user's id, needed to check admin_roles.
+ */
+export async function signInAdmin(email: string, password: string): Promise<string> {
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) throw new Error(`Sign-in failed: ${error.message}`);
+  if (!data.user) throw new Error("Sign-in succeeded but no user was returned, this shouldn't happen.");
+  return data.user.id;
+}
+
+/**
+ * Checks whether a signed-in user is actually a granted admin (has a
+ * row in admin_roles), separate from just being logged in, since
+ * Supabase Auth alone doesn't know about our club-specific admin
+ * list. A real account can exist without admin access, e.g. someone
+ * who signed up but was never granted a role.
+ */
+export async function isGrantedAdmin(userId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("admin_roles")
+    .select("user_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) throw new Error(`Failed to check admin status: ${error.message}`);
+  return data !== null;
+}
+
+/**
+ * Creates a new ride, immediately active and joinable (build prompt's
+ * ride lifecycle starts at "created", but for this first admin screen
+ * we skip straight to "active" since there's no separate "prepare,
+ * then start" step built yet, see workingTitle-BUILD-PROMPT.md's
+ * "Ride lifecycle: explicit start and end" for the fuller version).
+ *
+ * @param name - the ride's display name, e.g. "Saturday Morning Loop".
+ * @param createdByUserId - the signed-in admin's user id.
+ * @returns the newly created ride row.
+ */
+export async function createRide(name: string, createdByUserId: string): Promise<Ride> {
+  const { data, error } = await supabase
+    .from("rides")
+    .insert({ name, status: "active", created_by: createdByUserId, started_at: new Date().toISOString() })
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to create ride: ${error.message}`);
+  return data as Ride;
+}
