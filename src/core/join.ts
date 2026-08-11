@@ -20,7 +20,12 @@ import { getOrCreateParticipantId } from "./participantId";
 // fixing the underlying issue, they were just silently stuck as a
 // spectator forever. This type lets the UI (see src/main.ts) show
 // what actually happened and offer a real "try again" action.
-export type SpectatorReason = "permission_denied" | "position_unavailable" | "timeout" | "unsupported";
+export type SpectatorReason =
+  | "permission_denied"
+  | "position_unavailable"
+  | "timeout"
+  | "unsupported"
+  | "insecure_context";
 
 export type LocationOutcome = { granted: true } | { granted: false; reason: SpectatorReason };
 
@@ -33,6 +38,21 @@ export function requestLocationPermission(): Promise<LocationOutcome> {
   return new Promise((resolve) => {
     if (!("geolocation" in navigator)) {
       resolve({ granted: false, reason: "unsupported" }); // this browser has no location API at all
+      return;
+    }
+
+    // Browsers refuse the Geolocation API entirely outside a "secure
+    // context" (https, or the special-cased "localhost"), a real gap
+    // this project's own vite.config.js invites: `server: { host: true
+    // }` is there specifically so someone can open the dev server on a
+    // real phone over plain http via a LAN IP (e.g. http://192.168.x.x:5173)
+    // for testing, which IS an insecure context, geolocation silently
+    // fails there. Checked explicitly and given its own reason, rather
+    // than letting it fall through to a generic "permission_denied"
+    // that gives no hint the real fix is switching to https or testing
+    // on localhost itself.
+    if (!window.isSecureContext) {
+      resolve({ granted: false, reason: "insecure_context" });
       return;
     }
 

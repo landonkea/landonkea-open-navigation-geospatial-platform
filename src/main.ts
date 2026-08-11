@@ -240,6 +240,8 @@ function spectatorReasonMessage(reason: SpectatorReason | undefined): string {
       return "Location request timed out.";
     case "unsupported":
       return "This browser doesn't support location sharing.";
+    case "insecure_context":
+      return "Location sharing needs a secure (https) connection, or open this on the same device as the dev server (localhost). A plain http address on another device (e.g. a phone over WiFi) can't share location.";
     default:
       return "Location wasn't shared.";
   }
@@ -375,9 +377,12 @@ function showLocationHelp(reason: SpectatorReason | undefined): Promise<void> {
 function setUpViewSwitcher(map: MapLibreMap, getCurrentFeatures: () => ParticipantFeature[]): void {
   const container = document.createElement("div");
   container.id = "view-switcher";
+  // "active" starts on Satellite, matching createMap()'s own
+  // "satellite" initialView passed from main() below, so this button
+  // doesn't lie about which view is actually showing on load.
   container.innerHTML = `
-    <button id="view-street" class="active">Map</button>
-    <button id="view-satellite">Satellite</button>
+    <button id="view-street">Map</button>
+    <button id="view-satellite" class="active">Satellite</button>
   `;
   document.body.appendChild(container);
 
@@ -650,7 +655,7 @@ async function main(): Promise<void> {
   registerServiceWorker();
   setUpInstallPrompt();
 
-  const map = createMap("map", bikeTheme.defaultMapCenter, bikeTheme.defaultMapZoom);
+  const map = createMap("map", bikeTheme.defaultMapCenter, bikeTheme.defaultMapZoom, "satellite");
 
   // WHY THIS AWAIT MATTERS (a real bug found by actually testing on a
   // real device): setParticipantLayer() calls map.addSource()/

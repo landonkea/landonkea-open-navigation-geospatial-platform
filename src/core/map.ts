@@ -46,6 +46,16 @@ const SATELLITE_STYLE: maplibregl.StyleSpecification = {
         "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
       ],
       tileSize: 256, // Esri's standard tile pixel size
+      // Esri's World Imagery doesn't have real photo detail past
+      // roughly this zoom worldwide (some cities have more, most
+      // don't, this is the safe floor). Without this, zooming in
+      // close requests tiles that don't exist and the map just goes
+      // blank instead of erroring loudly, a real "zoom as close as
+      // you can" complaint traced to exactly this. Setting maxzoom
+      // makes MapLibre automatically upscale the last real tile
+      // instead of requesting past it, so zooming in past z19 shows a
+      // softer image rather than nothing.
+      maxzoom: 19,
       attribution: "Esri, Maxar, Earthstar Geographics", // required by Esri's terms of use for this free service
     },
   },
@@ -84,6 +94,11 @@ export function setMapView(map: maplibregl.Map, view: MapViewId): Promise<void> 
  * @param containerId - the DOM element id to render the map into.
  * @param center - where the map opens, {lng, lat}.
  * @param zoom - initial zoom level, higher = more zoomed in.
+ * @param initialView - which base map to open on, defaults to
+ *   "street" (used as-is by admin.ts's route drawer, reading street
+ *   names/roads matters more there than imagery). The rider-facing
+ *   map (main.ts) passes "satellite" explicitly, the default view a
+ *   rider should see first.
  * @returns the created map instance, so callers (like main.ts) can
  *   add participant markers/clustering onto it later.
  */
@@ -91,19 +106,20 @@ export function createMap(
   containerId: string, // which <div id="..."> to render into
   center: LngLat, // starting map center
   zoom: number, // starting zoom level
+  initialView: MapViewId = "street",
 ): maplibregl.Map {
   const map = new maplibregl.Map({
     container: containerId, // tells MapLibre which DOM element is "the map"
-    // OpenFreeMap: real, full-detail OSM vector tiles worldwide, free,
-    // no signup, no API key, no rate limit (donation-funded). Replaced
-    // an earlier version of this file that used MapLibre's own
-    // "demotiles" style, which only has real detail in a handful of
-    // demo cities, everywhere else (including Mesa, AZ) rendered as a
-    // flat, featureless green fill, a real bug caught by actually
-    // loading the app and looking at it, not just by requests
-    // succeeding (the demo tiles DID load fine, HTTP 200, they just
-    // had no useful data for this location).
-    style: "https://tiles.openfreemap.org/styles/liberty",
+    // OpenFreeMap (street) or Esri World Imagery (satellite), see
+    // STREET_STYLE_URL/SATELLITE_STYLE above. Replaced an earlier
+    // version of this file that used MapLibre's own "demotiles"
+    // style, which only has real detail in a handful of demo cities,
+    // everywhere else (including Mesa, AZ) rendered as a flat,
+    // featureless green fill, a real bug caught by actually loading
+    // the app and looking at it, not just by requests succeeding (the
+    // demo tiles DID load fine, HTTP 200, they just had no useful
+    // data for this location).
+    style: initialView === "satellite" ? SATELLITE_STYLE : STREET_STYLE_URL,
     center: [center.lng, center.lat], // MapLibre wants [lng, lat] order, not [lat, lng]
     zoom, // shorthand for zoom: zoom
   });
