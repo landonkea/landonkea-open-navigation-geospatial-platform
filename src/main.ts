@@ -23,7 +23,7 @@ import { bikeTheme } from "./theme/bike/config"; // bike-specific config/wording
 function applyBaseStyles(): void {
   // The browser tab's title, previously a static <title> tag in
   // index.html, now generated from the active theme instead.
-  document.title = `${bikeTheme.eventWordSingular} — live map`; // e.g. "ride — live map"
+  document.title = `${bikeTheme.eventWordSingular} live map`; // e.g. "ride live map"
 
   // theme-color tints the browser's address bar / OS status bar on
   // supporting browsers (mostly Android Chrome). This has to be a
