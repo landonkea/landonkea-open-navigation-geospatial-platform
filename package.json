@@ -1,8 +1,8 @@
 {
-  "name": "landonkea-workingtitle",
+  "name": "landonkea-opennavigation-geospatial-platform",
   "private": true,
   "version": "0.1.0",
-  "description": "Placeholder name (see workingTitle-BUILD-PROMPT.md) for a free PWA that shows a group's live location on a shared map during an event, built first for a cycling meetup (bikeMesa) but kept generic underneath so it works for any group event.",
+  "description": "OpenNavigation & Geospatial Platform: a free PWA that shows a group's live location on a shared map during an event, built first for a cycling meetup (bikeMesa) but kept generic underneath so it works for any group event, indoor kiosks included.",
   "type": "module",
   "scripts": {
     "dev": "vite",

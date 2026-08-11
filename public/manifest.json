@@ -1,6 +1,6 @@
 {
-  "name": "workingTitle, live event map",
-  "short_name": "workingTitle",
+  "name": "OpenNavigation & Geospatial Platform",
+  "short_name": "OpenNav",
   "description": "See everyone's live location on a shared map during a group event.",
   "start_url": "/",
   "display": "standalone",

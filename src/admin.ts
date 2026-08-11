@@ -99,8 +99,11 @@ function renderCreateRide(adminUserId: string): void {
     const resultEl = document.getElementById("created-ride") as HTMLDivElement;
 
     try {
-      const ride: Ride = await createRide(nameInput.value, adminUserId); // real insert into `rides`
-      const joinUrl = `${window.location.origin}/?ride=${ride.id}`; // the rider-facing app, with this ride's id
+      const ride: Ride = await createRide(nameInput.value, adminUserId); // real insert into `rides`, this also generates ride.slug (see rideSlug.ts)
+      // Short, date-based link (e.g. "site.com/08112026") instead of
+      // the long uuid-based one, see rideSlug.ts's module docstring
+      // for the guessability tradeoff this accepts on purpose.
+      const joinUrl = `${window.location.origin}/${ride.slug}`;
       resultEl.innerHTML = `
         <p>Ride created: <strong>${ride.name}</strong></p>
         <p>Share this link, or have riders scan the QR code:</p>
@@ -108,8 +111,8 @@ function renderCreateRide(adminUserId: string): void {
       `;
       // Renders a scannable QR code for the same link, printable or
       // shown on a screen at the ride's start. Note: this is the
-      // current per-ride link format (a fresh QR every ride), NOT the
-      // permanent single-QR option discussed separately, that
+      // current per-ride link format (a fresh short link every ride),
+      // NOT the permanent single-QR option discussed separately, that
       // decision is still open, see this repo's conversation history.
       const canvas = document.createElement("canvas");
       resultEl.appendChild(canvas);

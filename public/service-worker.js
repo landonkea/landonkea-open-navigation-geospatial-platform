@@ -9,7 +9,7 @@
 // the JS) so the app still opens even with a flaky connection, the
 // same way a native app's icon still opens even with no signal.
 
-const CACHE_NAME = "workingtitle-shell-v1";
+const CACHE_NAME = "opennav-shell-v1";
 
 // Only the app "shell" itself, never live ride data, that must always
 // come from the network fresh, caching it would show stale rider

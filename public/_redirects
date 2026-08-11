@@ -1,0 +1,14 @@
+# Cloudflare Pages redirect rules. Only checked when no real static
+# file matches the request path first (Cloudflare's own precedence,
+# real files like /assets/*.js, /admin.html, /manifest.json always win
+# over these rules automatically, no rule needed for those).
+
+# /admin already works via Cloudflare's automatic "strip .html"
+# behavior, this line just makes it explicit/guaranteed rather than
+# relying only on that automatic behavior.
+/admin   /admin.html   200
+
+# Everything else (a short ride slug like /08112026, or any future
+# path) serves index.html instead of a 404, letting src/main.ts read
+# the real path itself (see getRideIdFromUrl()) and look up the ride.
+/*       /index.html   200

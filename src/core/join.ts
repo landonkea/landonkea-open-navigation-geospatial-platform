@@ -56,19 +56,38 @@ export function requestLocationPermission(): Promise<LocationOutcome> {
 export type JoinResult = {
   participant: RideParticipant; // the row created in Supabase
   isSpectator: boolean; // convenience copy of participant.is_spectator, avoids re-checking it everywhere
-  spectatorReason?: SpectatorReason; // why, only set when isSpectator is true
+  spectatorReason?: SpectatorReason; // why, only set when isSpectator is true because a location request failed
 };
 
+// WHY TWO SEPARATE FUNCTIONS (added after real feedback): the original
+// version auto-requested location the instant the page loaded, with no
+// explicit choice first, someone who WANTED to just watch still got a
+// permission prompt (or, worse, a silent denial with no context) before
+// they'd said anything about their intent. src/main.ts now shows a real
+// "I'm riding" / "Just watching" choice screen first, and calls
+// whichever of these two matches, so a deliberate spectator never sees
+// a location prompt at all, and a rider's failure reason is never
+// confused with "chose not to share."
+
 /**
- * Runs the full join flow for one ride: request location permission,
- * branch into rider or spectator based on the result, then create the
- * participant row in Supabase.
- *
- * @param rideId - the ride to join, taken from the join link's URL.
- * @returns the join result, including which path was taken, why (if
- *   spectator), and the created participant row.
+ * Joins as a spectator, deliberately, no location permission is ever
+ * requested. For someone who chose "Just watching" up front.
  */
-export async function joinRideFlow(rideId: string): Promise<JoinResult> {
+export async function joinAsSpectator(rideId: string): Promise<JoinResult> {
+  const participantId = getOrCreateParticipantId(rideId);
+  const participant = await joinRide(rideId, participantId, true);
+  return { participant, isSpectator: true };
+}
+
+/**
+ * Joins as a rider: requests location permission, and only falls back
+ * to spectator if that request actually fails, not by choice. For
+ * someone who chose "I'm riding" up front.
+ *
+ * @returns the join result, including which path was taken, why (if
+ *   the location request failed), and the created participant row.
+ */
+export async function joinAsRider(rideId: string): Promise<JoinResult> {
   const outcome = await requestLocationPermission(); // ask, and wait for the real answer
   const isSpectator = !outcome.granted;
 

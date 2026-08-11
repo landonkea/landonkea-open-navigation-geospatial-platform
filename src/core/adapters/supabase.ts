@@ -38,6 +38,7 @@
 //     project's Settings → API page.
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { baseSlugForDate, pickUniqueSlug } from "../rideSlug"; // short-link generation, see that file's docstring
 
 // ── Client setup ────────────────────────────────────────────────────
 // Read from Vite's environment variables (see .env.example), never
@@ -69,7 +70,7 @@ const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey);
 export type RideStatus = "created" | "active" | "ended"; // matches the schema's check constraint
 
 export type Ride = {
-  id: string; // uuid
+  id: string; // uuid, the original (still-valid) internal identifier
   name: string;
   status: RideStatus;
   created_by: string; // uuid, the admin's auth.users id
@@ -77,6 +78,11 @@ export type Ride = {
   started_at: string | null;
   ended_at: string | null;
   auto_end_after_hours: number;
+  // Short, date-based public link segment (e.g. "08112026"), see
+  // src/core/rideSlug.ts and its migration for the format and the
+  // honest guessability tradeoff. Null for any ride created before
+  // this column existed.
+  slug: string | null;
 };
 
 export type RideParticipant = {
@@ -121,6 +127,46 @@ export async function fetchRide(rideId: string): Promise<Ride | null> {
 
   if (error) throw new Error(`Failed to fetch ride: ${error.message}`); // surface a real error, don't fail silently
   return data as Ride | null; // null means "no ride with that id", a normal, expected case
+}
+
+/**
+ * Fetches one ride by its short slug (e.g. "08112026") instead of its
+ * internal uuid. This is what the rider-facing app actually looks up
+ * first, since join links/QR codes now use the short slug (see
+ * src/core/rideSlug.ts), the app then uses the returned ride's real
+ * `id` for every other call (joining, polling, etc.), the slug itself
+ * is never used as a database foreign key anywhere else.
+ *
+ * @param slug - the short link segment from the URL.
+ * @returns the ride row, or null if no ride has that slug (a bad/
+ *   mistyped link, handled by the caller as "not found", not a crash).
+ */
+export async function fetchRideBySlug(slug: string): Promise<Ride | null> {
+  const { data, error } = await supabase
+    .from("rides") // same table as fetchRide() above
+    .select("*") // every column
+    .eq("slug", slug) // filter by the short slug instead of the uuid
+    .maybeSingle(); // expect 0 or 1 row
+
+  if (error) throw new Error(`Failed to fetch ride by slug: ${error.message}`);
+  return data as Ride | null;
+}
+
+/**
+ * Fetches every slug currently in use, so a new ride's slug can be
+ * checked for same-day collisions (see rideSlug.ts's pickUniqueSlug())
+ * before it's actually created.
+ *
+ * @returns a Set of every non-null slug string in the rides table.
+ */
+export async function fetchAllRideSlugs(): Promise<Set<string>> {
+  const { data, error } = await supabase
+    .from("rides")
+    .select("slug") // only need this one column, not the whole row
+    .not("slug", "is", null); // skip any old rides created before slugs existed
+
+  if (error) throw new Error(`Failed to fetch existing ride slugs: ${error.message}`);
+  return new Set((data ?? []).map((row) => row.slug as string)); // build a Set for fast "already taken?" checks
 }
 
 // ── Participant functions ───────────────────────────────────────────
@@ -282,9 +328,23 @@ export async function isGrantedAdmin(userId: string): Promise<boolean> {
  * @returns the newly created ride row.
  */
 export async function createRide(name: string, createdByUserId: string): Promise<Ride> {
+  // Build today's short slug (e.g. "08112026"), checking every
+  // existing slug first so two rides created the same day don't
+  // collide (see rideSlug.ts's pickUniqueSlug() for the "-2", "-3"
+  // suffix behavior).
+  const existingSlugs = await fetchAllRideSlugs(); // one query, every slug currently in use
+  const baseSlug = baseSlugForDate(); // today's date, formatted
+  const slug = pickUniqueSlug(baseSlug, existingSlugs); // the actual slug this ride will get
+
   const { data, error } = await supabase
     .from("rides")
-    .insert({ name, status: "active", created_by: createdByUserId, started_at: new Date().toISOString() })
+    .insert({
+      name,
+      status: "active",
+      created_by: createdByUserId,
+      started_at: new Date().toISOString(),
+      slug,
+    })
     .select()
     .single();
 

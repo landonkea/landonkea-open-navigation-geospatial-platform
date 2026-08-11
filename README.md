@@ -1,14 +1,14 @@
-# workingTitle
+# OpenNavigation & Geospatial Platform
 
-A free, open source PWA (installable from the browser, not a native app) that shows a group's live location on a shared map during an event. Built first for a Mesa, AZ cycling meetup (bikeMesa), but the core is kept generic so the same app works for any group event, see [`src/theme/bike/`](src/theme/bike/) for the one place bike-specific wording/config lives.
+A free, open source PWA (installable from the browser, not a native app) that shows a group's live location on a shared map during an event. Built first for a Mesa, AZ cycling meetup (bikeMesa) as its pilot client, but the core is kept generic so the same platform works for any group event, indoor kiosk wayfinding included, see [`src/theme/bike/`](src/theme/bike/) for the one place bike-specific wording/config lives, everything else is generic.
 
-The full design spec (why every decision was made, the build phases, testing requirements) lives in `workingTitle-BUILD-PROMPT.md` at the top of the `dev/` directory, that's the source of truth this code is built from.
+The full design spec (why every decision was made, the build phases, testing requirements) lives in `workingTitle-BUILD-PROMPT.md` at the top of the `dev/` directory (original working-title filename kept as-is, it's just a filename), that's the source of truth this code is built from.
 
 ## Stack
 
-- Plain JavaScript + HTML/CSS, no framework, bundled/served locally with [Vite](https://vitejs.dev/).
-- [MapLibre GL JS](https://maplibre.org/) + OpenStreetMap tiles for the map (free, no per-load billing).
-- [Supabase](https://supabase.com/) (Postgres + Auth) for the backend, developed locally via the Supabase CLI (no account needed yet), see below.
+- TypeScript + HTML/CSS, no framework, bundled/served locally with [Vite](https://vitejs.dev/).
+- [MapLibre GL JS](https://maplibre.org/) + OpenFreeMap tiles for the map (free, no per-load billing, no signup).
+- [Supabase](https://supabase.com/) (Postgres + Auth) for the backend, developed locally via the Supabase CLI (no account needed for local dev), a real hosted project for production.
 
 ## Local development
 

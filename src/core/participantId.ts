@@ -9,7 +9,7 @@
 // joins), matching the build prompt's per-ride data isolation
 // requirement.
 
-const STORAGE_KEY_PREFIX = "workingtitle-participant-id-"; // followed by the ride id
+const STORAGE_KEY_PREFIX = "opennav-participant-id-"; // followed by the ride id
 
 /**
  * Gets this device's participant id for a given ride, creating and
