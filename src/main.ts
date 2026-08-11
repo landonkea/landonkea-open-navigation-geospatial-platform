@@ -59,6 +59,7 @@ function applyBaseStyles(): void {
     #install-prompt { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 10; background: white; border-radius: 8px; padding: 10px 16px; box-shadow: 0 1px 6px rgba(0,0,0,0.3); font-size: 13px; display: flex; align-items: center; gap: 10px; max-width: 90%; }
     #install-prompt button { padding: 6px 12px; font-size: 13px; background: #1f6feb; color: white; border: none; border-radius: 4px; cursor: pointer; }
     #install-prompt .dismiss { background: none; color: #888; padding: 4px; }
+    #offline-indicator { position: absolute; top: 44px; left: 0; right: 0; z-index: 9; background: #c62828; color: white; text-align: center; padding: 6px; font-size: 13px; }
   `;
   document.head.appendChild(layoutStyle);
 }
@@ -337,6 +338,29 @@ const ROSTER_SORT_ORDER: Record<SignalStatus, number> = { red: 0, yellow: 1, gre
  *   list on every poll (see main()'s onPollUpdate), it stores the
  *   data and, if the panel is currently open, re-renders it live too.
  */
+/**
+ * Shows/hides a plain "you're offline" banner in response to
+ * sync.ts's online-status watching (Fallback #1, see
+ * offlineBuffer.ts). Kept separate from the main join-status banner
+ * since the two convey genuinely different things (which mode you
+ * joined in, vs. a live connectivity signal) and can both be true at
+ * once.
+ *
+ * @returns a callback in the exact shape startPolling() expects for
+ *   its onOnlineStatusChange parameter.
+ */
+function setUpOfflineIndicator(): (isOnline: boolean) => void {
+  const indicator = document.createElement("div");
+  indicator.id = "offline-indicator";
+  indicator.textContent = "You're offline, sharing will resume automatically once reconnected.";
+  indicator.style.display = "none"; // hidden by default, only shown while actually offline
+  document.body.appendChild(indicator);
+
+  return (isOnline: boolean) => {
+    indicator.style.display = isOnline ? "none" : "block";
+  };
+}
+
 function setUpRosterView(): (participants: RideParticipant[]) => void {
   let latestParticipants: RideParticipant[] = []; // remembered so opening the panel always shows current data
   let isOpen = false;
@@ -443,6 +467,7 @@ async function main(): Promise<void> {
   let latestParticipantFeatures: ParticipantFeature[] = [];
   setUpViewSwitcher(map, () => latestParticipantFeatures);
   const updateRoster = setUpRosterView(); // returns a function to call with fresh data on every poll
+  const updateOfflineIndicator = setUpOfflineIndicator(); // returns a function matching startPolling's onOnlineStatusChange shape
 
   // The URL holds either a short slug (new links, e.g. "/08112026")
   // or, for backward compatibility with any already-shared old-style
@@ -533,6 +558,7 @@ async function main(): Promise<void> {
               false, // now sharing for real
               bikeTheme.defaultUpdateIntervalSeconds,
               onPollUpdate,
+              updateOfflineIndicator,
             );
             redrawBanner();
           } else {
@@ -565,6 +591,7 @@ async function main(): Promise<void> {
       currentlySpectator,
       bikeTheme.defaultUpdateIntervalSeconds,
       onPollUpdate,
+      updateOfflineIndicator,
     );
   } catch (err) {
     banner.textContent = `Couldn't join this ride: ${err instanceof Error ? err.message : String(err)}`;

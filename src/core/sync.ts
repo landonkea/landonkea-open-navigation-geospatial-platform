@@ -9,12 +9,40 @@
 import { fetchParticipants, updateParticipantPosition, type RideParticipant } from "./adapters/supabase";
 import { distanceMeters, headingDegrees, type GpsPoint } from "./geo";
 import { countsAsMovement } from "./stuckDetection";
+import { watchOnlineStatus, type OnlineStatusCallback } from "./offlineBuffer";
 
 // The last GPS reading this device took, kept between polls so
 // headingDegrees()/speedMetersPerSecond() have a previous point to
 // compare the newest one against. Null until the first real reading
 // arrives.
 let previousPoint: GpsPoint | null = null;
+
+// Never wait longer than this between retries, even after many
+// consecutive failures, a real cap on how degraded things get.
+const MAX_BACKOFF_SECONDS = 300; // 5 minutes
+
+/**
+ * Fallback #3 (build prompt: "a Supabase limit gets hit
+ * unexpectedly... degrade gracefully instead of hard-failing... fall
+ * back to a longer polling interval"): computes how long to wait
+ * before the next poll attempt, doubling the normal interval for each
+ * additional consecutive failure, capped at MAX_BACKOFF_SECONDS so it
+ * never grows unbounded. Resets back to the plain interval the moment
+ * a poll succeeds again (see startPolling()'s loop(), which resets
+ * its failure counter to 0 on success).
+ *
+ * A pure function on purpose (no reference to the actual timer/poll
+ * state), so the backoff math itself is easy to verify in isolation.
+ *
+ * @param baseIntervalSeconds - the normal, non-backed-off interval.
+ * @param consecutiveFailures - how many polls in a row have failed,
+ *   0 means "no backoff needed, use the normal interval."
+ */
+export function computeBackoffSeconds(baseIntervalSeconds: number, consecutiveFailures: number): number {
+  if (consecutiveFailures <= 0) return baseIntervalSeconds; // normal case, no backoff needed
+  const backedOff = baseIntervalSeconds * 2 ** consecutiveFailures; // 1st failure: 2x, 2nd: 4x, 3rd: 8x, ...
+  return Math.min(backedOff, MAX_BACKOFF_SECONDS);
+}
 
 /**
  * Reads the device's current GPS position, wrapped as a Promise
@@ -110,6 +138,12 @@ export async function pollOnce(
  * function to stop it (call this when a ride ends or the page
  * unloads, so a stray timer doesn't keep polling forever).
  *
+ * Also watches the browser's online/offline signal (Fallback #1, see
+ * offlineBuffer.ts's module docstring for the full reasoning) and
+ * triggers an immediate poll the moment connectivity returns, rather
+ * than leaving someone waiting up to a full interval after
+ * reconnecting.
+ *
  * @param participantId - this device's own participant id.
  * @param rideId - which ride to sync.
  * @param isSpectator - see pollOnce()'s docs.
@@ -117,6 +151,9 @@ export async function pollOnce(
  *   build prompt's "Update interval: user-selectable" section.
  * @param onUpdate - called with the fresh participant list after
  *   every successful poll, the caller uses this to redraw the map.
+ * @param onOnlineStatusChange - optional, called whenever the
+ *   device's online/offline state changes, so the caller can show a
+ *   plain "you're offline" indicator (see main.ts).
  * @returns a function that stops the poll loop when called.
  */
 export function startPolling(
@@ -125,28 +162,50 @@ export function startPolling(
   isSpectator: boolean,
   intervalSeconds: number,
   onUpdate: (participants: RideParticipant[]) => void,
+  onOnlineStatusChange?: OnlineStatusCallback,
 ): () => void {
   let stopped = false; // flips true once stopPolling() is called, checked before each poll
+  let scheduledTimer: ReturnType<typeof setTimeout> | null = null; // tracked so a reconnect can cancel and replace it
+  let consecutiveFailures = 0; // Fallback #3, see computeBackoffSeconds()'s docstring
 
   async function loop(): Promise<void> {
     if (stopped) return; // the loop was stopped while a previous poll was still in flight, bail out
+    scheduledTimer = null; // this poll is the one that was scheduled, it's no longer "pending"
     try {
       const participants = await pollOnce(participantId, rideId, isSpectator);
       onUpdate(participants); // hand the fresh data to the caller (e.g. to redraw the map)
+      consecutiveFailures = 0; // a real success, reset the backoff back to the normal interval
     } catch (err) {
       // Fetching participants failed entirely (not just this device's
       // own position update, that's already handled above), log and
       // let the next scheduled poll try again rather than stopping.
-      console.error("Poll failed, will retry next interval:", err);
+      consecutiveFailures += 1;
+      const delay = computeBackoffSeconds(intervalSeconds, consecutiveFailures);
+      console.error(`Poll failed (${consecutiveFailures} in a row), backing off to every ${delay}s:`, err);
     }
     if (!stopped) {
-      setTimeout(loop, intervalSeconds * 1000); // schedule the next poll only after this one finished
+      const delay = computeBackoffSeconds(intervalSeconds, consecutiveFailures);
+      scheduledTimer = setTimeout(loop, delay * 1000); // schedule the next poll, backed off if needed
     }
   }
 
   loop(); // kick off the first poll immediately, don't wait a full interval before the first update
 
+  const stopWatchingOnlineStatus = watchOnlineStatus((isOnline) => {
+    onOnlineStatusChange?.(isOnline); // let the caller update its UI regardless
+    if (isOnline && !stopped && scheduledTimer) {
+      // Reconnected while a future poll was still waiting on its
+      // timer, jump the queue: cancel that wait and poll right now
+      // instead, so a rider's location resumes sharing immediately
+      // rather than up to a full interval late.
+      clearTimeout(scheduledTimer);
+      loop();
+    }
+  });
+
   return () => {
     stopped = true; // the returned "stop" function, prevents any further scheduled polls from running
+    if (scheduledTimer) clearTimeout(scheduledTimer);
+    stopWatchingOnlineStatus();
   };
 }

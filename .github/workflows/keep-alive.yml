@@ -1,0 +1,38 @@
+# ── Fallback #4: keep the free Supabase project from pausing ────────
+# WHAT: Supabase's free tier automatically pauses a project after 7
+# days with zero activity. Since rides don't happen every single day,
+# the project could be asleep on ride morning if nothing else touches
+# it during the week. This pings it every few days so it never gets
+# the chance to pause, see workingTitle-BUILD-PROMPT.md's "Keep the
+# free backend from going to sleep" section.
+name: Keep Supabase project alive
+
+on:
+  schedule:
+    # Every 3 days, well under the 7-day pause threshold, gives real
+    # margin even if one run is skipped/delayed.
+    - cron: "0 12 * * 1,4" # Mondays and Thursdays at 12:00 UTC
+  workflow_dispatch: # allow a manual run from the Actions tab too
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping the Supabase project
+        env:
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          # A plain, cheap, real request against the actual project,
+          # not just a ping to the domain, Supabase needs to see real
+          # API activity, not just network reachability, to count as
+          # "active" and avoid pausing.
+          status=$(curl -s -o /dev/null -w "%{http_code}" \
+            "$SUPABASE_URL/rest/v1/rides?limit=1" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY")
+          echo "Supabase responded with HTTP $status"
+          if [ "$status" -ge 500 ]; then
+            echo "::warning::Supabase project may be paused or unreachable (HTTP $status). If this persists, open the Supabase dashboard manually, opening it alone wakes a paused project back up."
+            exit 1
+          fi
