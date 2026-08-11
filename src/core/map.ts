@@ -34,19 +34,27 @@ export function createMap(
 ): maplibregl.Map {
   const map = new maplibregl.Map({
     container: containerId, // tells MapLibre which DOM element is "the map"
-    // A free, no-signup-required OSM tile style. Good enough to build
-    // and test against; a production deployment may want a dedicated
-    // free tile provider (e.g. MapTiler's free tier) for better
-    // reliability at scale, that's a one-line style URL swap here
-    // later, not a rewrite.
-    style: "https://demotiles.maplibre.org/style.json",
+    // OpenFreeMap: real, full-detail OSM vector tiles worldwide, free,
+    // no signup, no API key, no rate limit (donation-funded). Replaced
+    // an earlier version of this file that used MapLibre's own
+    // "demotiles" style, which only has real detail in a handful of
+    // demo cities, everywhere else (including Mesa, AZ) rendered as a
+    // flat, featureless green fill, a real bug caught by actually
+    // loading the app and looking at it, not just by requests
+    // succeeding (the demo tiles DID load fine, HTTP 200, they just
+    // had no useful data for this location).
+    style: "https://tiles.openfreemap.org/styles/liberty",
     center: [center.lng, center.lat], // MapLibre wants [lng, lat] order, not [lat, lng]
     zoom, // shorthand for zoom: zoom
   });
 
-  // Standard zoom/rotate controls, top-right, small but genuinely
-  // useful on a phone screen where pinch-zoom alone can be fiddly.
-  map.addControl(new maplibregl.NavigationControl(), "top-right");
+  // Standard zoom/rotate controls, bottom-right (not top-right), small
+  // but genuinely useful on a phone screen where pinch-zoom alone can
+  // be fiddly. Bottom-right specifically to stay clear of the status
+  // banner main.ts renders across the top of the screen, a real bug
+  // found by actually looking at the running app: top-right placement
+  // put the zoom buttons directly under/behind that banner.
+  map.addControl(new maplibregl.NavigationControl(), "bottom-right");
 
   return map; // hand the live map instance back to the caller
 }

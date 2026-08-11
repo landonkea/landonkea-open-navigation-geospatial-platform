@@ -7,6 +7,7 @@
 // screens, not enough complexity to justify one.
 
 import { signInAdmin, isGrantedAdmin, createRide, type Ride } from "./core/adapters/supabase";
+import QRCode from "qrcode";
 
 const root = document.getElementById("admin-root") as HTMLDivElement; // the one mount point from admin.html
 
@@ -102,9 +103,17 @@ function renderCreateRide(adminUserId: string): void {
       const joinUrl = `${window.location.origin}/?ride=${ride.id}`; // the rider-facing app, with this ride's id
       resultEl.innerHTML = `
         <p>Ride created: <strong>${ride.name}</strong></p>
-        <p>Share this link:</p>
+        <p>Share this link, or have riders scan the QR code:</p>
         <p class="ride-link">${joinUrl}</p>
       `;
+      // Renders a scannable QR code for the same link, printable or
+      // shown on a screen at the ride's start. Note: this is the
+      // current per-ride link format (a fresh QR every ride), NOT the
+      // permanent single-QR option discussed separately, that
+      // decision is still open, see this repo's conversation history.
+      const canvas = document.createElement("canvas");
+      resultEl.appendChild(canvas);
+      await QRCode.toCanvas(canvas, joinUrl, { width: 220 });
       nameInput.value = ""; // clear the field so creating another ride starts fresh
     } catch (err) {
       errorEl.textContent = err instanceof Error ? err.message : String(err);

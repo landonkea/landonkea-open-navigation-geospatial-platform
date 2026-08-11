@@ -138,17 +138,24 @@ export async function fetchRide(rideId: string): Promise<Ride | null> {
  *   its own row on subsequent polls with no login involved.
  * @param isSpectator - true if location permission was denied/never
  *   requested, see the build prompt's rider-vs-spectator branch.
- * @returns the newly created participant row.
+ * @returns the participant row, either freshly created or the
+ *   existing one for this device+ride.
  */
 export async function joinRide(
   rideId: string,
   participantId: string,
   isSpectator: boolean,
 ): Promise<RideParticipant> {
+  // upsert, not insert: participantId is stable per device+ride (see
+  // participantId.ts), so a page reload mid-ride reuses the same id.
+  // A plain insert would fail with a duplicate-key error on that
+  // second attempt, a real bug found by actually reloading the app,
+  // not by reading the code. upsert resumes the existing row instead
+  // of erroring.
   const { data, error } = await supabase
     .from("ride_participants")
-    .insert({ id: participantId, ride_id: rideId, is_spectator: isSpectator }) // lat/lng start null, filled in by the first position update
-    .select() // return the row we just inserted
+    .upsert({ id: participantId, ride_id: rideId, is_spectator: isSpectator }) // lat/lng start null, filled in by the first position update
+    .select() // return the row, whether it was just created or already existed
     .single(); // expect exactly one row back
 
   if (error) throw new Error(`Failed to join ride: ${error.message}`);
@@ -283,4 +290,20 @@ export async function createRide(name: string, createdByUserId: string): Promise
 
   if (error) throw new Error(`Failed to create ride: ${error.message}`);
   return data as Ride;
+}
+
+/**
+ * Flips an existing participant from spectator to rider, used when
+ * someone retries granting location access after an initial denial
+ * (see src/core/join.ts's retryLocationShare()). Updates the same
+ * row/id rather than creating a second participant, so this stays one
+ * consistent identity for the rest of the ride.
+ */
+export async function becomeRider(participantId: string): Promise<void> {
+  const { error } = await supabase
+    .from("ride_participants")
+    .update({ is_spectator: false })
+    .eq("id", participantId);
+
+  if (error) throw new Error(`Failed to switch to rider mode: ${error.message}`);
 }

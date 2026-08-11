@@ -7,7 +7,7 @@
 import "maplibre-gl/dist/maplibre-gl.css"; // MapLibre's required stylesheet, bundled by Vite, not a CDN link
 import { createMap, setParticipantLayer, type ParticipantFeature } from "./core/map";
 import { bikeTheme } from "./theme/bike/config";
-import { joinRideFlow } from "./core/join";
+import { joinRideFlow, retryLocationShare, type SpectatorReason } from "./core/join";
 import { startPolling } from "./core/sync";
 import { signalStatus } from "./core/geo";
 import type { RideParticipant } from "./core/adapters/supabase";
@@ -25,6 +25,7 @@ function applyBaseStyles(): void {
     html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
     #map { position: absolute; inset: 0; }
     #join-banner { position: absolute; top: 0; left: 0; right: 0; z-index: 10; background: #1f6feb; color: white; padding: 8px 12px; font-size: 14px; text-align: center; }
+    #join-banner button { margin-left: 10px; padding: 4px 10px; font-size: 13px; background: white; color: #1f6feb; border: none; border-radius: 4px; cursor: pointer; }
   `;
   document.head.appendChild(layoutStyle);
 }
@@ -74,6 +75,27 @@ function getRideIdFromUrl(): string | null {
   return new URLSearchParams(window.location.search).get("ride");
 }
 
+/**
+ * Turns a spectator reason into plain language a rider can actually
+ * act on, rather than a generic "you're a spectator" with no
+ * explanation. Added after real testing showed people were silently
+ * dropped into spectator mode with no idea why or how to fix it.
+ */
+function spectatorReasonMessage(reason: SpectatorReason | undefined): string {
+  switch (reason) {
+    case "permission_denied":
+      return "Location access was denied. Check your browser's site settings to allow it, then try again.";
+    case "position_unavailable":
+      return "Couldn't get a location fix (no GPS signal or location services are off). Try again outdoors or with location services enabled.";
+    case "timeout":
+      return "Location request timed out. Try again with a clearer view of the sky.";
+    case "unsupported":
+      return "This browser doesn't support location sharing.";
+    default:
+      return "Location wasn't shared.";
+  }
+}
+
 async function main(): Promise<void> {
   applyBaseStyles();
   registerServiceWorker();
@@ -102,24 +124,68 @@ async function main(): Promise<void> {
   document.body.appendChild(banner);
 
   try {
-    const { participant, isSpectator } = await joinRideFlow(rideId);
-    banner.textContent = isSpectator
-      ? "Watching as a spectator, your location is not shared."
-      : "Joined, sharing your live location.";
+    const { participant, isSpectator, spectatorReason } = await joinRideFlow(rideId);
+    let currentlySpectator = isSpectator; // tracked mutably, a retry can flip this mid-session
+    let stopPolling: () => void; // assigned below, re-assigned again if a retry restarts polling
 
-    startPolling(
+    const redrawBanner = () => {
+      if (!currentlySpectator) {
+        banner.innerHTML = "Joined, sharing your live location.";
+        return;
+      }
+      // Spectator: show why, plus a real retry button, not a dead end.
+      banner.innerHTML = "";
+      banner.append(spectatorReasonMessage(spectatorReason));
+      const retryButton = document.createElement("button");
+      retryButton.textContent = "Try again";
+      retryButton.addEventListener("click", async () => {
+        retryButton.disabled = true;
+        retryButton.textContent = "Checking...";
+        try {
+          const outcome = await retryLocationShare(participant.id); // see join.ts, flips the existing row, not a new one
+          if (outcome.granted) {
+            currentlySpectator = false;
+            stopPolling(); // stop the spectator-mode loop (which never posts a position)
+            stopPolling = startPolling(
+              participant.id,
+              rideId,
+              false, // now sharing for real
+              bikeTheme.defaultUpdateIntervalSeconds,
+              onPollUpdate,
+            );
+            redrawBanner();
+          } else {
+            banner.innerHTML = "";
+            banner.append(spectatorReasonMessage(outcome.reason));
+            banner.appendChild(retryButton); // keep the same button usable for another attempt
+            retryButton.disabled = false;
+            retryButton.textContent = "Try again";
+          }
+        } catch (err) {
+          console.error(err);
+          retryButton.disabled = false;
+          retryButton.textContent = "Try again";
+        }
+      });
+      banner.appendChild(retryButton);
+    };
+
+    const onPollUpdate = (participants: RideParticipant[]) => {
+      // Called after every successful poll (see sync.ts), redraw the
+      // map with the freshest data.
+      setParticipantLayer(map, {
+        type: "FeatureCollection",
+        features: toParticipantFeatures(participants),
+      });
+    };
+
+    redrawBanner();
+    stopPolling = startPolling(
       participant.id,
       rideId,
-      isSpectator,
+      currentlySpectator,
       bikeTheme.defaultUpdateIntervalSeconds,
-      (participants) => {
-        // Called after every successful poll (see sync.ts), redraw
-        // the map with the freshest data.
-        setParticipantLayer(map, {
-          type: "FeatureCollection",
-          features: toParticipantFeatures(participants),
-        });
-      },
+      onPollUpdate,
     );
   } catch (err) {
     banner.textContent = `Couldn't join this ride: ${err instanceof Error ? err.message : String(err)}`;
