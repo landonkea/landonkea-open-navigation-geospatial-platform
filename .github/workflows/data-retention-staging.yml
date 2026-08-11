@@ -1,0 +1,61 @@
+# ── Data retention (staging) ─────────────────────────────────────────
+# Same job as .github/workflows/data-retention.yml, running against
+# staging's own, fully separate Supabase project instead of
+# production's, see OPERATIONS.md's "Supabase (staging)" notes for
+# why staging has its own isolated database. Kept as a genuinely
+# separate workflow file (not a parameterized single file) so it's
+# unambiguous at a glance which environment a given run/log belongs
+# to, and so a change to one environment's job can't accidentally
+# affect the other's.
+name: Delete expired ride position data (staging)
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete ride_participants rows for long-ended rides
+        env:
+          SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          SERVICE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+
+          # See src/core/policy.ts's POST_RIDE_DISCONNECT_MINUTES,
+          # kept in sync here by hand, same as the production version
+          # of this job.
+          RETENTION_MINUTES=20
+          cutoff=$(date -u -d "-${RETENTION_MINUTES} minutes" +"%Y-%m-%dT%H:%M:%S")
+
+          expired_rides=$(curl -sS -f \
+            "$SUPABASE_URL/rest/v1/rides?select=id&status=eq.ended&ended_at=lt.${cutoff}" \
+            -H "apikey: $SERVICE_KEY" \
+            -H "Authorization: Bearer $SERVICE_KEY")
+          echo "Expired rides: $expired_rides"
+
+          ride_ids=$(echo "$expired_rides" | python3 -c "import json,sys; print(','.join(r['id'] for r in json.load(sys.stdin)))")
+
+          if [ -z "$ride_ids" ]; then
+            echo "No ended rides past the retention window, nothing to delete."
+            exit 0
+          fi
+
+          response=$(curl -s -w "\n%{http_code}" -X DELETE \
+            "$SUPABASE_URL/rest/v1/ride_participants?ride_id=in.(${ride_ids})" \
+            -H "apikey: $SERVICE_KEY" \
+            -H "Authorization: Bearer $SERVICE_KEY" \
+            -H "Prefer: return=representation")
+
+          http_code=$(echo "$response" | tail -1)
+          body=$(echo "$response" | sed '$d')
+          echo "HTTP $http_code"
+          echo "$body"
+
+          if [ "$http_code" -ge 300 ]; then
+            echo "::error::Retention cleanup failed with HTTP $http_code"
+            exit 1
+          fi
