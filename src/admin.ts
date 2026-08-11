@@ -6,7 +6,7 @@
 // manipulation, no framework, same as main.ts, this is a handful of
 // screens, not enough complexity to justify one.
 
-import { signInAdmin, isGrantedAdmin, createRide, createRoute, type Ride } from "./core/adapters/supabase";
+import { signInAdmin, isGrantedAdmin, createRide, createRoute, endRide, type Ride } from "./core/adapters/supabase";
 import { parseGpx } from "./core/gpx";
 import QRCode from "qrcode";
 
@@ -116,8 +116,44 @@ function renderCreateRide(adminUserId: string): void {
       nameInput.value = ""; // clear the field so creating another ride starts fresh
 
       renderRouteUpload(resultEl, ride.id); // let the admin optionally add a GPX route right after creating the ride
+      renderEndRideButton(resultEl, ride.id); // explicit lifecycle control, build prompt's "Ride lifecycle" section
     } catch (err) {
       errorEl.textContent = err instanceof Error ? err.message : String(err);
+    }
+  });
+}
+
+/**
+ * Renders an explicit "End Ride" button under a just-created ride.
+ * Build prompt's "Ride lifecycle" section: ending a ride "stops new
+ * broadcasts" (see sync.ts's pollOnce(), which checks ride status on
+ * every poll and stops itself once it sees 'ended') "and triggers the
+ * 20-minute countdown to delete live data" (that deletion job itself
+ * isn't built yet, see OPERATIONS.md's Phase 5 notes).
+ *
+ * @param container - where to render the button.
+ * @param rideId - which ride this ends.
+ */
+function renderEndRideButton(container: HTMLElement, rideId: string): void {
+  const section = document.createElement("div");
+  section.innerHTML = `
+    <button id="end-ride-button" style="background: #c62828; margin-top: 20px;">End Ride</button>
+    <p class="error" id="end-ride-error"></p>
+    <p id="end-ride-success" style="color: #2e7d32;"></p>
+  `;
+  container.appendChild(section);
+
+  const button = document.getElementById("end-ride-button") as HTMLButtonElement;
+  button.addEventListener("click", async () => {
+    const errorEl = document.getElementById("end-ride-error") as HTMLParagraphElement;
+    const successEl = document.getElementById("end-ride-success") as HTMLParagraphElement;
+    button.disabled = true;
+    try {
+      await endRide(rideId);
+      successEl.textContent = "Ride ended. Riders' apps will stop sharing location on their next check-in.";
+    } catch (err) {
+      errorEl.textContent = err instanceof Error ? err.message : String(err);
+      button.disabled = false; // let them retry if it failed
     }
   });
 }

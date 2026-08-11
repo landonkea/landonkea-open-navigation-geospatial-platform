@@ -130,6 +130,25 @@ export async function fetchRide(rideId: string): Promise<Ride | null> {
 }
 
 /**
+ * Fetches just a ride's status, a much smaller query than fetchRide()'s
+ * full row, used on every poll (see sync.ts's pollOnce()) specifically
+ * so a rider's app can notice an admin ending the ride and stop
+ * broadcasting, without paying the cost of re-fetching the whole ride
+ * row that often.
+ *
+ * @param rideId - which ride to check.
+ * @returns the current status, or null if the ride somehow no longer
+ *   exists (treated the same as "ended" by the caller, either way
+ *   there's nothing left to broadcast to).
+ */
+export async function fetchRideStatus(rideId: string): Promise<RideStatus | null> {
+  const { data, error } = await supabase.from("rides").select("status").eq("id", rideId).maybeSingle();
+
+  if (error) throw new Error(`Failed to check ride status: ${error.message}`);
+  return data ? (data.status as RideStatus) : null;
+}
+
+/**
  * Fetches one ride by its short slug (e.g. "08112026") instead of its
  * internal uuid. This is what the rider-facing app actually looks up
  * first, since join links/QR codes now use the short slug (see
@@ -366,6 +385,27 @@ export async function becomeRider(participantId: string): Promise<void> {
     .eq("id", participantId);
 
   if (error) throw new Error(`Failed to switch to rider mode: ${error.message}`);
+}
+
+/**
+ * Ends a ride: sets status to 'ended' and records when. Build
+ * prompt's "Ride lifecycle" section, this is what should "stop new
+ * broadcasts and trigger deletion after the real 20-minute window."
+ * The actual stopping-new-broadcasts part happens client-side, see
+ * sync.ts's pollOnce(), which now also checks ride status on every
+ * poll and stops itself once it sees 'ended'. Any admin can end any
+ * ride, not just ones they created (same shared-access policy as
+ * ride creation/editing, see the RLS policy on `rides`).
+ *
+ * @param rideId - which ride to end.
+ */
+export async function endRide(rideId: string): Promise<void> {
+  const { error } = await supabase
+    .from("rides")
+    .update({ status: "ended", ended_at: new Date().toISOString() })
+    .eq("id", rideId);
+
+  if (error) throw new Error(`Failed to end ride: ${error.message}`);
 }
 
 // ── Route functions ──────────────────────────────────────────────────

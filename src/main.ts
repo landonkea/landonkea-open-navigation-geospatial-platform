@@ -559,6 +559,7 @@ async function main(): Promise<void> {
               bikeTheme.defaultUpdateIntervalSeconds,
               onPollUpdate,
               updateOfflineIndicator,
+              onRideEnded,
             );
             redrawBanner();
           } else {
@@ -584,6 +585,14 @@ async function main(): Promise<void> {
       updateRoster(participants); // same poll data, no extra network request, see setUpRosterView()'s docstring
     };
 
+    const onRideEnded = () => {
+      // sync.ts already stopped the poll loop itself by this point,
+      // this is purely about telling the person what happened instead
+      // of the app just silently going quiet.
+      banner.innerHTML = "";
+      banner.append(`This ${bikeTheme.eventWordSingular} has ended. Thanks for joining!`);
+    };
+
     redrawBanner();
     stopPolling = startPolling(
       participant.id,
@@ -592,6 +601,7 @@ async function main(): Promise<void> {
       bikeTheme.defaultUpdateIntervalSeconds,
       onPollUpdate,
       updateOfflineIndicator,
+      onRideEnded,
     );
   } catch (err) {
     banner.textContent = `Couldn't join this ride: ${err instanceof Error ? err.message : String(err)}`;

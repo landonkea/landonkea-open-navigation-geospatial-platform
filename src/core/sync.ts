@@ -6,7 +6,13 @@
 // instead of a held-open connection (Supabase's free tier caps
 // realtime connections at 200, our expected scale can exceed that).
 
-import { fetchParticipants, updateParticipantPosition, type RideParticipant } from "./adapters/supabase";
+import {
+  fetchParticipants,
+  fetchRideStatus,
+  updateParticipantPosition,
+  type RideParticipant,
+  type RideStatus,
+} from "./adapters/supabase";
 import { distanceMeters, headingDegrees, type GpsPoint } from "./geo";
 import { countsAsMovement } from "./stuckDetection";
 import { watchOnlineStatus, type OnlineStatusCallback } from "./offlineBuffer";
@@ -57,25 +63,30 @@ function getCurrentPosition(): Promise<GeolocationPosition> {
   });
 }
 
+export type PollResult = {
+  participants: RideParticipant[];
+  rideStatus: RideStatus | null; // checked every poll so an admin ending the ride is noticed quickly, see startPolling()
+};
+
 /**
  * Runs one full poll cycle: read this device's own GPS position, send
  * it to Supabase (skipped entirely for spectators, who never
  * broadcast a position), then fetch every participant's current data
- * so the caller can redraw the map.
+ * plus the ride's current status, so the caller can redraw the map
+ * and notice if the ride has ended.
  *
  * @param participantId - this device's own participant id.
  * @param rideId - which ride to sync.
  * @param isSpectator - spectators skip the "post my own position"
  *   half of the cycle, per the build prompt's spectator-mode design,
  *   but still fetch everyone else's positions to see the live map.
- * @returns every current participant in the ride, for the caller to
- *   redraw onto the map/roster.
+ * @returns every current participant plus the ride's current status.
  */
 export async function pollOnce(
   participantId: string,
   rideId: string,
   isSpectator: boolean,
-): Promise<RideParticipant[]> {
+): Promise<PollResult> {
   if (!isSpectator) {
     try {
       const rawPosition = await getCurrentPosition(); // ask the device for a fresh GPS fix
@@ -123,14 +134,20 @@ export async function pollOnce(
     } catch (err) {
       // A single failed GPS read or network request shouldn't crash
       // the whole app, log it and move on, the next poll interval
-      // will simply try again (this is also where the build prompt's
-      // "buffer briefly, resend on reconnect" fallback would plug in,
-      // not yet built, see workingTitle-BUILD-PROMPT.md's Fallback #1).
+      // will simply try again. Real network loss specifically is
+      // handled a level up, in startPolling() below (Fallback #1, see
+      // offlineBuffer.ts), which reacts to the browser's own online/
+      // offline signal rather than trying to infer it from request
+      // failures here.
       console.error("Position update failed, will retry next poll:", err);
     }
   }
 
-  return fetchParticipants(rideId); // always fetch, spectators included, everyone needs to see the map
+  const [participants, rideStatus] = await Promise.all([
+    fetchParticipants(rideId), // always fetch, spectators included, everyone needs to see the map
+    fetchRideStatus(rideId), // cheap, status-only query, see fetchRideStatus()'s docstring for why
+  ]);
+  return { participants, rideStatus };
 }
 
 /**
@@ -154,6 +171,11 @@ export async function pollOnce(
  * @param onOnlineStatusChange - optional, called whenever the
  *   device's online/offline state changes, so the caller can show a
  *   plain "you're offline" indicator (see main.ts).
+ * @param onRideEnded - optional, called once if an admin ends the
+ *   ride while this device is still polling (build prompt's "Ride
+ *   lifecycle" section: ending a ride should "stop new broadcasts").
+ *   The loop stops itself right after calling this, no need for the
+ *   caller to call the returned stop function too.
  * @returns a function that stops the poll loop when called.
  */
 export function startPolling(
@@ -163,6 +185,7 @@ export function startPolling(
   intervalSeconds: number,
   onUpdate: (participants: RideParticipant[]) => void,
   onOnlineStatusChange?: OnlineStatusCallback,
+  onRideEnded?: () => void,
 ): () => void {
   let stopped = false; // flips true once stopPolling() is called, checked before each poll
   let scheduledTimer: ReturnType<typeof setTimeout> | null = null; // tracked so a reconnect can cancel and replace it
@@ -172,9 +195,21 @@ export function startPolling(
     if (stopped) return; // the loop was stopped while a previous poll was still in flight, bail out
     scheduledTimer = null; // this poll is the one that was scheduled, it's no longer "pending"
     try {
-      const participants = await pollOnce(participantId, rideId, isSpectator);
+      const { participants, rideStatus } = await pollOnce(participantId, rideId, isSpectator);
       onUpdate(participants); // hand the fresh data to the caller (e.g. to redraw the map)
       consecutiveFailures = 0; // a real success, reset the backoff back to the normal interval
+
+      if (rideStatus === "ended" || rideStatus === null) {
+        // An admin ended the ride (or, less likely, it was deleted
+        // entirely), stop polling for real, per the build prompt's
+        // "stop new broadcasts" requirement, this device's own
+        // position update above already happened for this cycle
+        // (harmless, the row just won't be read from again once
+        // retention deletes it), but there will be no next one.
+        stopped = true;
+        onRideEnded?.();
+        return; // skip scheduling another poll below
+      }
     } catch (err) {
       // Fetching participants failed entirely (not just this device's
       // own position update, that's already handled above), log and
