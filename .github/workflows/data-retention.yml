@@ -1,0 +1,83 @@
+# ── Data retention: delete live position data 20 minutes after a ride
+# ends ─────────────────────────────────────────────────────────────
+# WHAT: the build prompt's "Data retention" section requires live
+# position data to stop being shown and be deleted a set time (see
+# POST_RIDE_DISCONNECT_MINUTES in src/core/policy.ts) after a ride
+# ends. There's no always-on server process in this project (static
+# frontend + Supabase, see the build prompt's own architecture), so a
+# scheduled GitHub Action, running every 10 minutes, is the free way
+# to do this periodic cleanup. Runs against the real production
+# Supabase project using the SERVICE ROLE key (bypasses Row Level
+# Security on purpose, this is a privileged maintenance operation, not
+# something any regular user/admin should be able to trigger through
+# the app itself).
+name: Delete expired ride position data
+
+on:
+  schedule:
+    # Every 10 minutes. Real deletion timing will be "up to ~10
+    # minutes after the 20-minute window", not exact-to-the-second,
+    # that's an accepted tradeoff of using a scheduled job instead of
+    # a real-time server process, and is fine for this project's
+    # actual privacy goal (not leaving live location data around
+    # indefinitely, not deleting it at a precise instant).
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete ride_participants rows for long-ended rides
+        env:
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+
+          # POST_RIDE_DISCONNECT_MINUTES in src/core/policy.ts is the
+          # single source of truth for this number in the app itself,
+          # kept in sync here by hand since this workflow can't import
+          # a TypeScript file, if that constant ever changes, update
+          # the number below to match.
+          RETENTION_MINUTES=20
+          cutoff=$(date -u -d "-${RETENTION_MINUTES} minutes" +"%Y-%m-%dT%H:%M:%S")
+
+          # Two requests, not one. Tried a single DELETE filtered
+          # through an embedded "rides!inner(...)" relationship first
+          # (fewer round trips), confirmed by hand against a real
+          # local Supabase instance that PostgREST rejects it:
+          # embedded-resource filters don't count as a WHERE clause on
+          # the DELETE's own target table, so it fails outright with
+          # "DELETE requires a WHERE clause" rather than silently
+          # deleting the wrong rows. This two-step version (find the
+          # expired ride ids, then delete by ride_id) is the version
+          # actually verified to work end-to-end locally.
+          expired_rides=$(curl -sS -f \
+            "$SUPABASE_URL/rest/v1/rides?select=id&status=eq.ended&ended_at=lt.${cutoff}" \
+            -H "apikey: $SERVICE_KEY" \
+            -H "Authorization: Bearer $SERVICE_KEY")
+          echo "Expired rides: $expired_rides"
+
+          ride_ids=$(echo "$expired_rides" | python3 -c "import json,sys; print(','.join(r['id'] for r in json.load(sys.stdin)))")
+
+          if [ -z "$ride_ids" ]; then
+            echo "No ended rides past the retention window, nothing to delete."
+            exit 0
+          fi
+
+          response=$(curl -s -w "\n%{http_code}" -X DELETE \
+            "$SUPABASE_URL/rest/v1/ride_participants?ride_id=in.(${ride_ids})" \
+            -H "apikey: $SERVICE_KEY" \
+            -H "Authorization: Bearer $SERVICE_KEY" \
+            -H "Prefer: return=representation")
+
+          http_code=$(echo "$response" | tail -1)
+          body=$(echo "$response" | sed '$d')
+          echo "HTTP $http_code"
+          echo "$body"
+
+          if [ "$http_code" -ge 300 ]; then
+            echo "::error::Retention cleanup failed with HTTP $http_code"
+            exit 1
+          fi
