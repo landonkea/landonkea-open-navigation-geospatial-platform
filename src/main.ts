@@ -14,7 +14,13 @@ import { signalStatus, type SignalStatus } from "./core/geo";
 import { detectLocationGuidance } from "./core/locationHelp";
 import { keepWakeLockAlive } from "./core/wakeLock";
 import { isPossiblyStuck } from "./core/stuckDetection";
-import { fetchRide, fetchRideBySlug, fetchRouteForRide, type RideParticipant } from "./core/adapters/supabase";
+import {
+  fetchRide,
+  fetchRideBySlug,
+  fetchRouteForRide,
+  submitFeedback,
+  type RideParticipant,
+} from "./core/adapters/supabase";
 
 function applyBaseStyles(): void {
   document.title = `${bikeTheme.eventWordSingular} live map`; // e.g. "ride live map"
@@ -60,6 +66,14 @@ function applyBaseStyles(): void {
     #install-prompt button { padding: 6px 12px; font-size: 13px; background: #1f6feb; color: white; border: none; border-radius: 4px; cursor: pointer; }
     #install-prompt .dismiss { background: none; color: #888; padding: 4px; }
     #offline-indicator { position: absolute; top: 44px; left: 0; right: 0; z-index: 9; background: #c62828; color: white; text-align: center; padding: 6px; font-size: 13px; }
+    #share-button { position: absolute; top: 12px; right: 12px; z-index: 10; background: white; border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
+    #feedback-button { position: absolute; top: 56px; right: 12px; z-index: 10; background: white; border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
+    #feedback-form { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
+    #feedback-form .card { background: white; border-radius: 10px; padding: 24px; max-width: 360px; width: 90%; }
+    #feedback-form textarea { width: 100%; box-sizing: border-box; padding: 10px; font-size: 15px; border-radius: 6px; border: 1px solid #ccc; margin: 10px 0; font-family: inherit; resize: vertical; }
+    #feedback-form button { padding: 10px 16px; font-size: 15px; border: none; border-radius: 6px; cursor: pointer; margin-right: 8px; }
+    #feedback-form .submit-btn { background: #1f6feb; color: white; }
+    #feedback-form .cancel-btn { background: #eee; color: #222; }
   `;
   document.head.appendChild(layoutStyle);
 }
@@ -415,6 +429,96 @@ function tagLabel(tagId: string): string {
   return tag ? `${tag.icon} ${tag.label}` : tagId;
 }
 
+/**
+ * Renders a "Share" button using the browser's native share sheet
+ * (the Web Share API) when available, e.g. handing off to Messages/
+ * WhatsApp/Twitter/whatever the OS offers, no hardcoded per-platform
+ * links needed. Desktop browsers mostly don't support it, falls back
+ * to copying the link to the clipboard instead, the next best thing.
+ *
+ * @param rideName - shown as the shared content's title.
+ */
+function setUpShareButton(rideName: string): void {
+  const button = document.createElement("button");
+  button.id = "share-button";
+  button.textContent = "Share";
+  document.body.appendChild(button);
+
+  button.addEventListener("click", async () => {
+    const url = window.location.href;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: rideName, text: `Join ${rideName}`, url });
+      } catch (err) {
+        // AbortError just means they closed the native share sheet
+        // without picking anything, a normal outcome, not a real error.
+        if (err instanceof Error && err.name !== "AbortError") console.error("Share failed:", err);
+      }
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      button.textContent = "Copied!";
+      setTimeout(() => {
+        button.textContent = "Share";
+      }, 2000);
+    } catch (err) {
+      console.error("Clipboard copy failed:", err);
+    }
+  });
+}
+
+/**
+ * Renders a "Feedback" button opening a small anonymous feedback
+ * form (see submitFeedback() in supabase.ts and the "feedback" table's
+ * migration comment for why this exists instead of linking out to an
+ * external Google Form/Tally form, no external service, no url to go
+ * set up first). Works on an ended ride too, not just an active one.
+ *
+ * @param rideId - which ride the feedback is about.
+ */
+function setUpFeedbackButton(rideId: string): void {
+  const button = document.createElement("button");
+  button.id = "feedback-button";
+  button.textContent = "Feedback";
+  document.body.appendChild(button);
+
+  button.addEventListener("click", () => {
+    const overlay = document.createElement("div");
+    overlay.id = "feedback-form";
+    overlay.innerHTML = `
+      <div class="card">
+        <h2>Feedback</h2>
+        <p>Anonymous, nothing identifying is attached to this.</p>
+        <textarea rows="4" placeholder="What's working, what's not?"></textarea>
+        <p class="error"></p>
+        <div>
+          <button class="submit-btn">Send</button>
+          <button class="cancel-btn">Cancel</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    overlay.querySelector(".cancel-btn")!.addEventListener("click", () => overlay.remove());
+    overlay.querySelector(".submit-btn")!.addEventListener("click", async () => {
+      const textarea = overlay.querySelector("textarea") as HTMLTextAreaElement;
+      const errorEl = overlay.querySelector(".error") as HTMLParagraphElement;
+      const message = textarea.value.trim();
+      if (!message) {
+        errorEl.textContent = "Type something first.";
+        return;
+      }
+      try {
+        await submitFeedback(rideId, message);
+        overlay.remove();
+      } catch (err) {
+        errorEl.textContent = err instanceof Error ? err.message : String(err);
+      }
+    });
+  });
+}
+
 function setUpRosterView(): (participants: RideParticipant[]) => void {
   let latestParticipants: RideParticipant[] = []; // remembered so opening the panel always shows current data
   let isOpen = false;
@@ -565,6 +669,8 @@ async function main(): Promise<void> {
   }
 
   const rideId = ride.id; // the real internal uuid, used for every call from here on, the slug's only job was finding this
+  setUpShareButton(ride.name); // build prompt's "social sharing links", native share sheet, no per-platform links needed
+  setUpFeedbackButton(rideId); // in-app replacement for the originally-planned external feedback form
 
   // Draw the ride's planned route, if it has one uploaded (a "no
   // fixed route" ride, per the build prompt, is valid too, in which

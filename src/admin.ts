@@ -17,6 +17,7 @@ import {
   fetchHistorySamples,
   fetchParticipants,
   updateParticipantTag,
+  fetchFeedback,
   type Ride,
 } from "./core/adapters/supabase";
 import { parseGpx } from "./core/gpx";
@@ -325,6 +326,44 @@ function buildRideListItem(ride: Ride): HTMLElement {
       }
     } catch (err) {
       participantsSection.innerHTML = "";
+      showItemError(err);
+    }
+  });
+
+  const feedbackButton = document.createElement("button");
+  feedbackButton.textContent = "View Feedback";
+  feedbackButton.style.background = "#555";
+  actions.appendChild(feedbackButton);
+
+  // Same lazy load-once-then-toggle pattern as participants above.
+  const feedbackSection = document.createElement("div");
+  feedbackSection.style.cssText = "margin-top: 8px;";
+  item.appendChild(feedbackSection);
+  let feedbackLoaded = false;
+
+  feedbackButton.addEventListener("click", async () => {
+    if (feedbackSection.innerHTML !== "") {
+      feedbackSection.innerHTML = "";
+      feedbackLoaded = false;
+      return;
+    }
+    if (feedbackLoaded) return;
+    feedbackLoaded = true;
+    feedbackSection.innerHTML = "<p>Loading feedback…</p>";
+    try {
+      const submissions = await fetchFeedback(ride.id);
+      if (submissions.length === 0) {
+        feedbackSection.innerHTML = "<p>No feedback submitted yet.</p>";
+        return;
+      }
+      feedbackSection.innerHTML = submissions
+        .map(
+          (f) =>
+            `<p style="border-top: 1px solid #eee; padding-top: 4px; margin-top: 4px; font-size: 14px;">${escapeHtml(f.message)}</p>`,
+        )
+        .join("");
+    } catch (err) {
+      feedbackSection.innerHTML = "";
       showItemError(err);
     }
   });

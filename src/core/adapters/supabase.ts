@@ -610,3 +610,49 @@ export async function fetchHistorySamples(
     recordedAt: row.recorded_at as string,
   }));
 }
+
+// ── Feedback functions ──────────────────────────────────────────────
+// In-app replacement for the originally-planned external Google
+// Form/Tally link (see the "feedback" table's migration comment for
+// why), no external service to wire up, just a table + RLS.
+
+export type Feedback = {
+  id: number;
+  ride_id: string;
+  message: string;
+  created_at: string;
+};
+
+/**
+ * Submits anonymous feedback for a ride. No participant/device id is
+ * ever attached, "anonymous" is a real property of this table, not
+ * just "no login required" (see the migration's own comment).
+ * Allowed even after a ride has ended, feedback often comes after the
+ * fact.
+ *
+ * @param rideId - which ride this feedback is about.
+ * @param message - the free-text feedback itself.
+ */
+export async function submitFeedback(rideId: string, message: string): Promise<void> {
+  const { error } = await supabase.from("feedback").insert({ ride_id: rideId, message });
+  if (error) throw new Error(`Failed to submit feedback: ${error.message}`);
+}
+
+/**
+ * Fetches every feedback submission for a ride, newest first.
+ * Admin-only, matches the "admins can read feedback" RLS policy (a
+ * non-admin caller gets an empty list back, not an error, RLS simply
+ * filters rows it can't see rather than rejecting the query).
+ *
+ * @param rideId - which ride's feedback to fetch.
+ */
+export async function fetchFeedback(rideId: string): Promise<Feedback[]> {
+  const { data, error } = await supabase
+    .from("feedback")
+    .select("*")
+    .eq("ride_id", rideId)
+    .order("created_at", { ascending: false });
+
+  if (error) throw new Error(`Failed to fetch feedback: ${error.message}`);
+  return (data ?? []) as Feedback[];
+}
