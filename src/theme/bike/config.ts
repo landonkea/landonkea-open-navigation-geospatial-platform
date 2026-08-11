@@ -43,6 +43,13 @@ export type EventTheme = {
   defaultUpdateIntervalSeconds: number; // how often a phone posts its location by default
   defaultMapCenter: LngLat; // where the map opens before any real ride is loaded
   defaultMapZoom: number; // initial zoom level, higher number = more zoomed in
+  // Path to a client's logo, shown small and semi-transparent in the
+  // corner of every screen (rider map + admin), see #brand-logo in
+  // main.ts/admin.ts. Swapping a client's real logo in is just
+  // replacing this one path (and the file it points to), no other
+  // code changes anywhere. Null skips rendering it entirely, for a
+  // theme with no logo yet.
+  logoUrl: string | null;
 };
 
 // The actual bike/bikeMesa theme values, this is the one export other
@@ -75,4 +82,9 @@ export const bikeTheme: EventTheme = {
   // future non-bike theme would set its own location here instead.
   defaultMapCenter: { lng: -111.8315, lat: 33.4152 },
   defaultMapZoom: 12, // roughly "whole city" zoom level
+
+  // A placeholder mark, not bikeMesa's real logo (none exists yet).
+  // Swap this path (and public/logo-placeholder.svg itself) for a
+  // real client logo whenever one's ready.
+  logoUrl: "/logo-placeholder.svg",
 };

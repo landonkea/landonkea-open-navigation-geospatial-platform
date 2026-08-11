@@ -46,13 +46,34 @@ function applyBaseStyles(): void {
   const style = document.createElement("style");
   style.textContent = `
     body { margin: 0; font-family: system-ui, sans-serif; background: linear-gradient(135deg, #ffcc80, #ff9800); min-height: 100vh; }
-    #admin-root { max-width: 420px; margin: 40px auto; padding: 24px; background: white; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
-    input, select { display: block; width: 100%; box-sizing: border-box; padding: 8px; margin: 6px 0 14px; font-size: 16px; }
+    /* Semi-transparent with a blur behind it (a "frosted glass" look),
+       so the orange gradient shows through instead of a flat opaque
+       card, user's explicit request. The blur keeps text readable
+       over the gradient rather than raw see-through text-on-text. */
+    #admin-root { max-width: 420px; margin: 40px auto; padding: 24px; background: rgba(255, 255, 255, 0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
+    input, select { display: block; width: 100%; box-sizing: border-box; padding: 8px; margin: 6px 0 14px; font-size: 16px; background: rgba(255, 255, 255, 0.6); border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 4px; }
     button { padding: 10px 16px; font-size: 16px; background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; border: none; border-radius: 4px; cursor: pointer; }
     .error { color: #c62828; font-size: 14px; }
     .ride-link { word-break: break-all; background: #fff3e0; padding: 8px; border-radius: 4px; font-family: monospace; }
+    #brand-logo { position: absolute; top: 12px; left: 12px; max-height: 32px; max-width: 140px; opacity: 0.8; pointer-events: none; }
   `;
   document.head.appendChild(style);
+}
+
+/**
+ * Renders the client's logo, small and semi-transparent, in the
+ * corner of the admin screen too, same idea and same theme source as
+ * main.ts's setUpBrandLogo(), so a real client's logo shows up
+ * consistently on both the rider-facing app and the admin panel from
+ * one config change.
+ */
+function setUpBrandLogo(): void {
+  if (!bikeTheme.logoUrl) return;
+  const img = document.createElement("img");
+  img.id = "brand-logo";
+  img.src = `${import.meta.env.BASE_URL}${bikeTheme.logoUrl.replace(/^\//, "")}`;
+  img.alt = "";
+  document.body.appendChild(img);
 }
 
 /**
@@ -910,4 +931,5 @@ function renderRouteDrawer(container: HTMLElement, rideId: string): void {
 }
 
 applyBaseStyles();
+setUpBrandLogo();
 renderSignIn(); // every visit starts at sign-in, no "remember me" session persistence built yet

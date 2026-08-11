@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 60">
+  <!-- Placeholder client logo, transparent background so it sits
+       directly on the gradient/map behind it (see theme's logoUrl
+       comment for how a real client swaps this in). Just a ring mark
+       plus "YOUR LOGO" text, nothing tied to bikeMesa specifically,
+       replace the whole file with a real logo before this goes to a
+       real client, no code changes needed elsewhere to do that. -->
+  <circle cx="30" cy="30" r="22" fill="none" stroke="#ff7e1f" stroke-width="5" />
+  <circle cx="30" cy="30" r="8" fill="#ffca28" />
+  <text x="64" y="38" font-family="system-ui, sans-serif" font-size="26" font-weight="600" fill="#ff7e1f">YOUR LOGO</text>
+</svg>

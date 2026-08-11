@@ -46,19 +46,22 @@ function applyBaseStyles(): void {
     #join-banner { position: absolute; top: 0; left: 0; right: 0; z-index: 5; background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; padding: 8px 12px; font-size: 14px; text-align: center; }
     #join-banner button { margin-left: 10px; padding: 4px 10px; font-size: 13px; background: #fff8e1; color: #ff7e1f; border: none; border-radius: 4px; cursor: pointer; }
     #join-choice { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
-    #join-choice .card { background: white; border-radius: 10px; padding: 28px; max-width: 360px; text-align: center; }
+    /* Semi-transparent "frosted glass" cards, the blur behind them
+       keeps text readable while still letting the map/gradient show
+       through, applied to every card/form/field in this app. */
+    #join-choice .card { background: rgba(255, 255, 255, 0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-radius: 10px; padding: 28px; max-width: 360px; text-align: center; }
     #join-choice h2 { margin-top: 0; }
     #join-choice button { display: block; width: 100%; padding: 14px; margin: 8px 0; font-size: 16px; border-radius: 6px; border: none; cursor: pointer; }
     #join-choice .ride-btn { background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; }
     #join-choice .watch-btn { background: #fff3e0; color: #7a4a00; }
     #tag-picker { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
-    #tag-picker .card { background: white; border-radius: 10px; padding: 28px; max-width: 360px; width: 90%; max-height: 80vh; overflow-y: auto; text-align: center; }
+    #tag-picker .card { background: rgba(255, 255, 255, 0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-radius: 10px; padding: 28px; max-width: 360px; width: 90%; max-height: 80vh; overflow-y: auto; text-align: center; }
     #tag-picker h2 { margin-top: 0; }
     #tag-picker button { display: block; width: 100%; padding: 14px; margin: 8px 0; font-size: 16px; border-radius: 6px; border: none; cursor: pointer; }
     #tag-picker .ride-btn { background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; }
     #tag-picker .watch-btn { background: #fff3e0; color: #7a4a00; }
     #location-help { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
-    #location-help .card { background: white; border-radius: 10px; padding: 24px; max-width: 380px; }
+    #location-help .card { background: rgba(255, 255, 255, 0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-radius: 10px; padding: 24px; max-width: 380px; }
     #location-help ol { padding-left: 20px; }
     #location-help li { margin-bottom: 8px; }
     #location-help button { padding: 10px 16px; font-size: 15px; background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; border: none; border-radius: 6px; cursor: pointer; margin-top: 8px; }
@@ -81,12 +84,16 @@ function applyBaseStyles(): void {
     #install-prompt button { padding: 6px 12px; font-size: 13px; background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; border: none; border-radius: 4px; cursor: pointer; }
     #install-prompt .dismiss { background: none; color: #888; padding: 4px; }
     #offline-indicator { position: absolute; top: 44px; left: 0; right: 0; z-index: 9; background: #c62828; color: white; text-align: center; padding: 6px; font-size: 13px; }
+    /* Semi-transparent so it reads as a watermark, not a solid badge
+       fighting for attention with the map, and never intercepts
+       clicks/taps meant for whatever's underneath it. */
+    #brand-logo { position: absolute; top: 12px; left: 12px; z-index: 10; max-height: 32px; max-width: 140px; opacity: 0.8; pointer-events: none; }
     #share-button { position: absolute; top: 12px; right: 12px; z-index: 10; background: #fff8e1; border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
     #feedback-button { position: absolute; top: 56px; right: 12px; z-index: 10; background: #fff8e1; border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
     #leave-ride-button { position: absolute; top: 100px; right: 12px; z-index: 10; background: #fff8e1; border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
     #feedback-form { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
-    #feedback-form .card { background: white; border-radius: 10px; padding: 24px; max-width: 360px; width: 90%; }
-    #feedback-form textarea { width: 100%; box-sizing: border-box; padding: 10px; font-size: 15px; border-radius: 6px; border: 1px solid #ffcc80; margin: 10px 0; font-family: inherit; resize: vertical; }
+    #feedback-form .card { background: rgba(255, 255, 255, 0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-radius: 10px; padding: 24px; max-width: 360px; width: 90%; }
+    #feedback-form textarea { width: 100%; box-sizing: border-box; padding: 10px; font-size: 15px; border-radius: 6px; border: 1px solid #ffcc80; margin: 10px 0; font-family: inherit; resize: vertical; background: rgba(255, 255, 255, 0.6); }
     #feedback-form button { padding: 10px 16px; font-size: 15px; border: none; border-radius: 6px; cursor: pointer; margin-right: 8px; }
     #feedback-form .submit-btn { background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; }
     #feedback-form .cancel-btn { background: #fff3e0; color: #7a4a00; }
@@ -455,6 +462,26 @@ function tagLabel(tagId: string): string {
 }
 
 /**
+ * Renders the client's logo, small and semi-transparent, in the
+ * corner of the screen (see #brand-logo's CSS above). Reads its path
+ * from bikeTheme.logoUrl, not hardcoded, so a real client's logo is a
+ * one-line theme-config change, not a code change. Does nothing if
+ * the theme has no logo set.
+ */
+function setUpBrandLogo(): void {
+  if (!bikeTheme.logoUrl) return;
+  const img = document.createElement("img");
+  img.id = "brand-logo";
+  // BASE_URL is "/" on Cloudflare (domain root) but "/repo-name/" on
+  // GitHub Pages (subpath-hosted), same reasoning as
+  // registerServiceWorker()'s fix above, a bare root-absolute
+  // logoUrl would 404 there otherwise.
+  img.src = `${import.meta.env.BASE_URL}${bikeTheme.logoUrl.replace(/^\//, "")}`;
+  img.alt = ""; // decorative watermark, not meaningful content, an empty alt is the correct accessible choice
+  document.body.appendChild(img);
+}
+
+/**
  * Renders a "Share" button using the browser's native share sheet
  * (the Web Share API) when available, e.g. handing off to Messages/
  * WhatsApp/Twitter/whatever the OS offers, no hardcoded per-platform
@@ -654,6 +681,7 @@ async function main(): Promise<void> {
   applyBaseStyles();
   registerServiceWorker();
   setUpInstallPrompt();
+  setUpBrandLogo();
 
   const map = createMap("map", bikeTheme.defaultMapCenter, bikeTheme.defaultMapZoom, "satellite");
 
