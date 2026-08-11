@@ -1,0 +1,20 @@
+{
+  "name": "landonkea-workingtitle",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Placeholder name (see workingTitle-BUILD-PROMPT.md) for a free PWA that shows a group's live location on a shared map during an event, built first for a cycling meetup (bikeMesa) but kept generic underneath so it works for any group event.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "maplibre-gl": "^4.7.1"
+  },
+  "devDependencies": {
+    "vite": "^5.4.11",
+    "typescript": "^5.7.2"
+  }
+}

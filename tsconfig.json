@@ -1,0 +1,34 @@
+{
+  // TypeScript compiler settings. Vite compiles TS on the fly during
+  // `npm run dev` using its own fast transpiler, this file is what
+  // makes your editor show real type errors as you type, and what
+  // `tsc --noEmit` (see package.json's "type-check" script) uses to
+  // actually fail a build if something's wrong.
+  "compilerOptions": {
+    // Compile down to a widely-supported JS version, phones with
+    // older browsers (this app's expected audience) still run this
+    // fine.
+    "target": "ES2020",
+    // Use real ES module syntax (import/export), which is what
+    // Vite and modern browsers both expect natively.
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    // Strict mode catches the most real bugs (e.g. using a value
+    // that might be null/undefined without checking), worth the
+    // extra friction for a novice-readable, correctness-focused
+    // project like this one.
+    "strict": true,
+    // Lets TypeScript understand DOM types (document, navigator,
+    // etc.) since this runs in a browser, not Node.js.
+    "lib": ["ES2020", "DOM"],
+    // Vite handles the actual bundling, TypeScript's job here is
+    // just type-checking, not producing output files itself.
+    "noEmit": true,
+    // Required when using ES modules with `isolatedModules`-style
+    // bundlers like Vite, keeps every file independently compilable.
+    "isolatedModules": true,
+    "skipLibCheck": true
+  },
+  // Only check our own source files, not node_modules.
+  "include": ["src"]
+}

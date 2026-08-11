@@ -1,0 +1,16 @@
+{
+  "name": "workingTitle — live event map",
+  "short_name": "workingTitle",
+  "description": "See everyone's live location on a shared map during a group event.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1f6feb",
+  "icons": [
+    {
+      "src": "/icons/icon-placeholder.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

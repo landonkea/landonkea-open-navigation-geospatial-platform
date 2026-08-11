@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Placeholder app icon, a plain blue circle with a dot, swap this
+       for a real designed icon before this goes public. -->
+  <circle cx="50" cy="50" r="48" fill="#1f6feb" />
+  <circle cx="50" cy="50" r="14" fill="#ffffff" />
+</svg>
