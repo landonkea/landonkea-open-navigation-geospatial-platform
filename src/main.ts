@@ -10,8 +10,10 @@ import { createMap, setParticipantLayer, setMapView, type MapViewId, type Partic
 import { bikeTheme } from "./theme/bike/config";
 import { joinAsRider, joinAsSpectator, retryLocationShare, type JoinResult, type SpectatorReason } from "./core/join";
 import { startPolling } from "./core/sync";
-import { signalStatus } from "./core/geo";
+import { signalStatus, type SignalStatus } from "./core/geo";
 import { detectLocationGuidance } from "./core/locationHelp";
+import { keepWakeLockAlive } from "./core/wakeLock";
+import { isPossiblyStuck } from "./core/stuckDetection";
 import { fetchRide, fetchRideBySlug, type RideParticipant } from "./core/adapters/supabase";
 
 function applyBaseStyles(): void {
@@ -42,6 +44,18 @@ function applyBaseStyles(): void {
     #view-switcher { position: absolute; bottom: 12px; left: 12px; z-index: 10; background: white; border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); overflow: hidden; }
     #view-switcher button { display: block; width: 90px; padding: 8px; font-size: 13px; border: none; background: white; cursor: pointer; }
     #view-switcher button.active { background: #1f6feb; color: white; }
+    #roster-toggle { position: absolute; bottom: 12px; right: 60px; z-index: 10; background: white; border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
+    #roster-panel { position: absolute; inset: 0; z-index: 15; background: white; overflow-y: auto; padding: 16px; }
+    #roster-panel h2 { margin-top: 40px; }
+    #roster-panel .summary { color: #555; margin-bottom: 12px; }
+    #roster-panel .close-roster { position: absolute; top: 12px; right: 12px; padding: 8px 14px; background: #eee; border: none; border-radius: 6px; cursor: pointer; }
+    #roster-panel ul { list-style: none; padding: 0; margin: 0; }
+    #roster-panel li { display: flex; align-items: center; gap: 10px; padding: 10px; border-bottom: 1px solid #eee; }
+    #roster-panel .dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+    #roster-panel .dot.green { background: #2e7d32; }
+    #roster-panel .dot.yellow { background: #f9a825; }
+    #roster-panel .dot.red { background: #c62828; }
+    #roster-panel .stuck-flag { color: #c62828; font-weight: bold; font-size: 12px; }
   `;
   document.head.appendChild(layoutStyle);
 }
@@ -234,6 +248,96 @@ function setUpViewSwitcher(map: MapLibreMap, getCurrentFeatures: () => Participa
   satelliteButton.addEventListener("click", () => switchTo("satellite"));
 }
 
+// Sort order for the roster list below: riders needing attention
+// (red, then yellow) surface to the top instead of getting buried in
+// a long green list, matching the build prompt's "Roster/headcount
+// view" section exactly ("Sort it so riders needing attention...
+// surface to the top instead of getting buried").
+const ROSTER_SORT_ORDER: Record<SignalStatus, number> = { red: 0, yellow: 1, green: 2 };
+
+/**
+ * Sets up the roster/headcount toggle button and panel. Reuses the
+ * exact same participant data already being polled for the map (see
+ * the build prompt: "no new data collection required"), just rendered
+ * as a sorted list instead of map dots.
+ *
+ * @returns an update function, call this with the latest participant
+ *   list on every poll (see main()'s onPollUpdate), it stores the
+ *   data and, if the panel is currently open, re-renders it live too.
+ */
+function setUpRosterView(): (participants: RideParticipant[]) => void {
+  let latestParticipants: RideParticipant[] = []; // remembered so opening the panel always shows current data
+  let isOpen = false;
+
+  const toggleButton = document.createElement("button");
+  toggleButton.id = "roster-toggle";
+  toggleButton.textContent = "Roster";
+  document.body.appendChild(toggleButton);
+
+  const panel = document.createElement("div");
+  panel.id = "roster-panel";
+  panel.style.display = "none"; // hidden until toggled open
+  panel.innerHTML = `<button class="close-roster">Close</button><h2>Roster</h2><div class="summary"></div><ul></ul>`;
+  document.body.appendChild(panel);
+
+  function render(): void {
+    const nowMs = Date.now(); // one shared "now" for this whole render, not re-read per row
+
+    // Only spectators are excluded from the count/list entirely, they
+    // never broadcast a position and aren't part of "who's on the
+    // road" the way the build prompt's roster example describes.
+    const tracked = latestParticipants.filter((p) => !p.is_spectator && p.lat !== null);
+
+    const rows = tracked
+      .map((p) => {
+        const lastSeenMs = new Date(p.last_seen_at).getTime();
+        const status = signalStatus(lastSeenMs, p.accuracy_m ?? 0, nowMs);
+        const lastMovedMs = new Date(p.last_moved_at).getTime();
+        const stuck = isPossiblyStuck(lastMovedMs, nowMs); // reuses the same detection logic, no new code path
+        const minutesAgo = Math.round((nowMs - lastSeenMs) / 60000);
+        return { p, status, stuck, minutesAgo };
+      })
+      .sort((a, b) => ROSTER_SORT_ORDER[a.status] - ROSTER_SORT_ORDER[b.status]); // needs-attention rows float to the top
+
+    const counts = { green: 0, yellow: 0, red: 0 };
+    for (const row of rows) counts[row.status]++;
+
+    const summaryEl = panel.querySelector(".summary") as HTMLDivElement;
+    // Matches the build prompt's own example phrasing: "34 riders
+    // joined, 31 green, 2 yellow, 1 red".
+    summaryEl.textContent = `${rows.length} ${bikeTheme.participantWord}s joined, ${counts.green} green, ${counts.yellow} yellow, ${counts.red} red`;
+
+    const listEl = panel.querySelector("ul") as HTMLUListElement;
+    listEl.innerHTML = rows
+      .map(
+        (row) => `
+        <li>
+          <span class="dot ${row.status}"></span>
+          <span>${row.status === "red" ? `lost signal ${row.minutesAgo} min ago` : row.status}</span>
+          ${row.p.tag ? `<span>· ${row.p.tag}</span>` : ""}
+          ${row.stuck ? `<span class="stuck-flag">possibly stuck</span>` : ""}
+        </li>
+      `,
+      )
+      .join("");
+  }
+
+  toggleButton.addEventListener("click", () => {
+    isOpen = true;
+    panel.style.display = "block";
+    render();
+  });
+  (panel.querySelector(".close-roster") as HTMLButtonElement).addEventListener("click", () => {
+    isOpen = false;
+    panel.style.display = "none";
+  });
+
+  return (participants: RideParticipant[]) => {
+    latestParticipants = participants;
+    if (isOpen) render(); // keep it live while someone's actually looking at it
+  };
+}
+
 async function main(): Promise<void> {
   applyBaseStyles();
   registerServiceWorker();
@@ -265,6 +369,7 @@ async function main(): Promise<void> {
   // quickly re-add them with data already on hand.
   let latestParticipantFeatures: ParticipantFeature[] = [];
   setUpViewSwitcher(map, () => latestParticipantFeatures);
+  const updateRoster = setUpRosterView(); // returns a function to call with fresh data on every poll
 
   // The URL holds either a short slug (new links, e.g. "/08112026")
   // or, for backward compatibility with any already-shared old-style
@@ -318,6 +423,7 @@ async function main(): Promise<void> {
     }
 
     const { participant } = result;
+    if (!result.isSpectator) keepWakeLockAlive(); // active rider from the start, keep the screen on (see wakeLock.ts's honest limits)
     let currentlySpectator = result.isSpectator; // tracked mutably, a retry can flip this mid-session
     let currentSpectatorReason = result.spectatorReason;
     let stopPolling: () => void; // assigned below, re-assigned again if a retry restarts polling
@@ -340,6 +446,7 @@ async function main(): Promise<void> {
           const outcome = await retryLocationShare(participant.id); // see join.ts, flips the existing row, not a new one
           if (outcome.granted) {
             currentlySpectator = false;
+            keepWakeLockAlive(); // just became an active rider via retry, keep the screen on too
             stopPolling(); // stop the spectator-mode loop (which never posts a position)
             stopPolling = startPolling(
               participant.id,
@@ -369,6 +476,7 @@ async function main(): Promise<void> {
         type: "FeatureCollection",
         features: latestParticipantFeatures,
       });
+      updateRoster(participants); // same poll data, no extra network request, see setUpRosterView()'s docstring
     };
 
     redrawBanner();
