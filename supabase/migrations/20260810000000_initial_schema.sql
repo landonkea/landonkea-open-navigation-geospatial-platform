@@ -179,9 +179,10 @@ create policy "admins can create routes"
 
 -- ── ride_history_samples ────────────────────────────────────────────
 -- Long-term, lightweight retention (build prompt: "Data retention").
--- Live rows in ride_participants get deleted 20 minutes after a ride
--- ends (a scheduled job, not yet built, same family of work as the
--- auto-end job above); this table is what survives after that, one
+-- Live rows in ride_participants get deleted once POST_RIDE_DISCONNECT_MINUTES
+-- (src/core/policy.ts, a placeholder value, easy to retune) has passed
+-- since a ride ended (a scheduled job, not yet built, same family of
+-- work as the auto-end job above); this table is what survives after that, one
 -- sparse sampled point per participant per minute (or a per-rider
 -- summary row, still an open call per the build prompt, sampled trail
 -- chosen here as the simpler first implementation). Powers the future
