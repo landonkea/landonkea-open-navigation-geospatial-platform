@@ -56,6 +56,9 @@ function applyBaseStyles(): void {
     #roster-panel .dot.yellow { background: #f9a825; }
     #roster-panel .dot.red { background: #c62828; }
     #roster-panel .stuck-flag { color: #c62828; font-weight: bold; font-size: 12px; }
+    #install-prompt { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 10; background: white; border-radius: 8px; padding: 10px 16px; box-shadow: 0 1px 6px rgba(0,0,0,0.3); font-size: 13px; display: flex; align-items: center; gap: 10px; max-width: 90%; }
+    #install-prompt button { padding: 6px 12px; font-size: 13px; background: #1f6feb; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    #install-prompt .dismiss { background: none; color: #888; padding: 4px; }
   `;
   document.head.appendChild(layoutStyle);
 }
@@ -64,6 +67,75 @@ function registerServiceWorker(): void {
   if (!("serviceWorker" in navigator)) return;
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/service-worker.js");
+  });
+}
+
+// Chrome/Android's real event type for the "Add to Home Screen"
+// prompt, not part of the standard DOM types yet (it's a newer,
+// Chromium-specific API), so it's declared by hand here.
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+};
+
+/**
+ * Shows a short "install this app" prompt the first time someone
+ * visits, build prompt's "Readability, contrast, and quick
+ * onboarding" section: "installing a PWA isn't obvious to everyone."
+ *
+ * Two real platform paths, handled differently since only one of them
+ * actually supports a programmatic prompt:
+ * - Android/desktop Chrome: listens for the browser's own
+ *   `beforeinstallprompt` event and shows a real "Install" button
+ *   that triggers the browser's native install flow.
+ * - iOS Safari: has NO programmatic install API at all (Apple's
+ *   choice, not something a website can work around), so this shows
+ *   plain instructions instead ("tap Share, then Add to Home
+ *   Screen").
+ *
+ * Skips entirely if the app is already running installed (standalone
+ * mode), no point prompting someone who already installed it.
+ */
+function setUpInstallPrompt(): void {
+  // Already installed and running standalone, or already dismissed
+  // this before on this device, don't ask again.
+  const alreadyStandalone = window.matchMedia("(display-mode: standalone)").matches;
+  const alreadyDismissed = localStorage.getItem("opennav-install-dismissed") === "true";
+  if (alreadyStandalone || alreadyDismissed) return;
+
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+
+  function showPrompt(installClickHandler: (() => void) | null): void {
+    const prompt = document.createElement("div");
+    prompt.id = "install-prompt";
+    prompt.innerHTML = installClickHandler
+      ? `<span>Install this app for quick access.</span><button id="install-now">Install</button><button class="dismiss" id="install-dismiss">✕</button>`
+      : `<span>Tip: tap Share, then "Add to Home Screen" for quick access.</span><button class="dismiss" id="install-dismiss">✕</button>`;
+    document.body.appendChild(prompt);
+
+    document.getElementById("install-dismiss")!.addEventListener("click", () => {
+      prompt.remove();
+      localStorage.setItem("opennav-install-dismissed", "true"); // don't nag every single visit
+    });
+    if (installClickHandler) {
+      document.getElementById("install-now")!.addEventListener("click", () => {
+        installClickHandler();
+        prompt.remove();
+      });
+    }
+  }
+
+  if (isIOS) {
+    showPrompt(null); // no programmatic prompt possible, just show the manual instructions
+    return;
+  }
+
+  // Chrome/Android fires this event automatically when it decides the
+  // page is installable, we just listen and hold onto it until
+  // someone actually clicks our own "Install" button.
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault(); // stop Chrome's own default mini-infobar, we show our own styled prompt instead
+    const installEvent = event as BeforeInstallPromptEvent;
+    showPrompt(() => installEvent.prompt());
   });
 }
 
@@ -341,6 +413,7 @@ function setUpRosterView(): (participants: RideParticipant[]) => void {
 async function main(): Promise<void> {
   applyBaseStyles();
   registerServiceWorker();
+  setUpInstallPrompt();
 
   const map = createMap("map", bikeTheme.defaultMapCenter, bikeTheme.defaultMapZoom);
 
