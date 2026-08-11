@@ -1,0 +1,78 @@
+# ── CI: type-check, unit tests, and a real-browser e2e test ─────────
+# WHAT: runs on every push to main or staging, independently of the
+# deploy workflows (deploy-pages.yml, deploy-staging.yml), which only
+# ever ran type-check as one step inside the deploy itself. That meant
+# a broken build failed AT THE SAME TIME as going live, not before.
+# This workflow exists to catch a regression earlier, and to actually
+# run the e2e test (e2e/join-flow.spec.ts) that clicks through the
+# real rider join flow, the kind of check that caught OPERATIONS.md's
+# bug #19 (a screen with missing CSS, invisible but still "in the
+# DOM") after the fact; running it here means a similar regression
+# would be caught before it ever reaches a real rider.
+#
+# NOTE: this workflow reports pass/fail as a GitHub check, it doesn't
+# by itself block a push to main from happening, GitHub pushes aren't
+# blockable without also turning on branch protection / required
+# status checks in the repo's own Settings, a separate, deliberate
+# choice left to the user rather than made here.
+name: CI (type-check, unit tests, e2e)
+
+on:
+  push:
+    branches: [main, staging]
+  workflow_dispatch: # also allow manually re-running from the Actions tab
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Unit tests
+        run: npm run test -- --run
+
+      # Local, ephemeral Supabase instance for this CI run only (Docker
+      # containers on the runner, not a real hosted project), built
+      # straight from supabase/migrations/, the same thing `supabase
+      # start` does on a real laptop, see OPERATIONS.md's "Local dev,
+      # from scratch" section.
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start local Supabase
+        run: supabase start
+
+      - name: Install Playwright's browser
+        run: npx playwright install --with-deps chromium
+
+      # These are Supabase CLI's fixed, publicly documented local-only
+      # defaults (this project doesn't override the JWT secret in
+      # supabase/config.toml), not real secrets, matching the ones
+      # e2e/localDb.ts already hardcodes for the same reason.
+      - name: Run e2e tests
+        env:
+          VITE_SUPABASE_URL: http://127.0.0.1:54321
+          VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+        run: npm run test:e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

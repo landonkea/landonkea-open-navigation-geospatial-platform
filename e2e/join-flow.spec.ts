@@ -9,7 +9,7 @@
 // rider's join silently stalled forever in production before anyone
 // noticed. This test clicks the real buttons instead.
 import { expect, test } from "@playwright/test";
-import { countRiderParticipants, deleteRide, seedActiveRide } from "./localDb";
+import { countRiderParticipants, createTestAdminUser, deleteRide, deleteTestAdminUser, seedActiveRide } from "./localDb";
 
 // A real GPS reading is needed for the "I'm riding" path to succeed
 // (joinAsRider() requests actual geolocation), Playwright can mock
@@ -20,7 +20,8 @@ test.use({
 });
 
 test("a rider can join a ride through the real join-choice and tag-picker screens", async ({ page }) => {
-  const { rideId, slug } = seedActiveRide("E2E join flow test");
+  const adminUserId = await createTestAdminUser(); // only used to satisfy rides.created_by, no admin sign-in happens here
+  const { rideId, slug } = seedActiveRide("E2E join flow test", adminUserId);
 
   try {
     await page.goto(`/${slug}`);
@@ -61,5 +62,6 @@ test("a rider can join a ride through the real join-choice and tag-picker screen
     expect(countRiderParticipants(rideId)).toBe(1);
   } finally {
     deleteRide(rideId); // cascades to the participant row too
+    await deleteTestAdminUser(adminUserId);
   }
 });
