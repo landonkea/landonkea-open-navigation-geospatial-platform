@@ -1,4 +1,4 @@
-# OpenNavigation & Geospatial Platform
+# Open Navigation & Geospatial Platform
 
 A free, open source PWA (installable from the browser, not a native app) that shows a group's live location on a shared map during an event. Built first for a Mesa, AZ cycling meetup (bikeMesa) as its pilot client, but the core is kept generic so the same platform works for any group event, indoor kiosk wayfinding included, see [`src/theme/bike/`](src/theme/bike/) for the one place bike-specific wording/config lives, everything else is generic.
 

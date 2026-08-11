@@ -78,7 +78,7 @@ export function samplesToGpx(rideName: string, samples: HistorySample[]): string
     })
     .join("\n");
 
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="OpenNavigation & Geospatial Platform" xmlns="http://www.topografix.com/GPX/1/1">\n  <metadata>\n    <name>${escapeXmlText(rideName)}</name>\n  </metadata>\n${tracks}\n</gpx>\n`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Open Navigation & Geospatial Platform" xmlns="http://www.topografix.com/GPX/1/1">\n  <metadata>\n    <name>${escapeXmlText(rideName)}</name>\n  </metadata>\n${tracks}\n</gpx>\n`;
 }
 
 /**
