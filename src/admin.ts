@@ -12,6 +12,7 @@ import {
   createRide,
   createRoute,
   endRide,
+  fetchAllRides,
   fetchHistorySamples,
   type Ride,
 } from "./core/adapters/supabase";
@@ -39,6 +40,21 @@ function applyBaseStyles(): void {
     .ride-link { word-break: break-all; background: #f0f0f0; padding: 8px; border-radius: 4px; font-family: monospace; }
   `;
   document.head.appendChild(style);
+}
+
+/**
+ * Escapes a plain string for safe insertion into innerHTML. Needed
+ * anywhere a user-entered value (a ride name, admin-chosen) gets
+ * shown, without this an admin could name a ride
+ * "<img src=x onerror=alert(1)>" and have it actually execute in
+ * every admin's browser who later views it (stored XSS), textContent
+ * itself auto-escapes, this just borrows that behavior via a scratch
+ * element rather than reimplementing HTML-escaping by hand.
+ */
+function escapeHtml(value: string): string {
+  const scratch = document.createElement("div");
+  scratch.textContent = value;
+  return scratch.innerHTML;
 }
 
 /**
@@ -94,7 +110,17 @@ function renderCreateRide(adminUserId: string): void {
       <p class="error" id="create-error"></p>
     </form>
     <div id="created-ride"></div>
+    <hr style="margin: 24px 0; border: none; border-top: 1px solid #ddd;" />
+    <div id="ride-list"></div>
   `;
+
+  // Admin-only ride browsing (fetchAllRides()'s docs explain why this
+  // is gated here, in the UI layer, rather than at the database
+  // level). Loaded once now, and refreshed after creating a new ride
+  // below, so a fresh admin session isn't stuck only ever managing the
+  // one ride created in it.
+  const rideListContainer = document.getElementById("ride-list") as HTMLDivElement;
+  loadAndRenderRideList(rideListContainer);
 
   const form = document.getElementById("create-ride-form") as HTMLFormElement;
   form.addEventListener("submit", async (event) => {
@@ -110,7 +136,7 @@ function renderCreateRide(adminUserId: string): void {
       // for the guessability tradeoff this accepts on purpose.
       const joinUrl = `${window.location.origin}/${ride.slug}`;
       resultEl.innerHTML = `
-        <p>Ride created: <strong>${ride.name}</strong></p>
+        <p>Ride created: <strong>${escapeHtml(ride.name)}</strong></p>
         <p>Share this link, or have riders scan the QR code:</p>
         <p class="ride-link">${joinUrl}</p>
       `;
@@ -127,10 +153,120 @@ function renderCreateRide(adminUserId: string): void {
       renderRouteUpload(resultEl, ride.id); // let the admin optionally add a GPX route right after creating the ride
       renderEndRideButton(resultEl, ride.id); // explicit lifecycle control, build prompt's "Ride lifecycle" section
       renderExportButtons(resultEl, ride); // build prompt's "Ride data export" section
+      loadAndRenderRideList(rideListContainer); // refresh so the just-created ride shows up in the list below immediately
     } catch (err) {
       errorEl.textContent = err instanceof Error ? err.message : String(err);
     }
   });
+}
+
+/**
+ * Loads every ride and renders each as a row in the given container,
+ * with inline "End Ride" / "Export GPX" / "Export CSV" actions. Kept
+ * separate from renderCreateRide() itself so it can be called again
+ * standalone (e.g. right after creating a new ride, to refresh).
+ *
+ * @param container - where to render the list, replaces its contents.
+ */
+async function loadAndRenderRideList(container: HTMLDivElement): Promise<void> {
+  container.innerHTML = "<p>Loading rides…</p>";
+  try {
+    const rides = await fetchAllRides();
+    container.innerHTML = "<h3>Existing rides</h3>";
+    if (rides.length === 0) {
+      container.innerHTML += "<p>No rides yet.</p>";
+      return;
+    }
+    for (const ride of rides) {
+      container.appendChild(buildRideListItem(ride));
+    }
+  } catch (err) {
+    container.innerHTML = `<p class="error">${escapeHtml(err instanceof Error ? err.message : String(err))}</p>`;
+  }
+}
+
+/**
+ * Builds one ride's row for the ride list: name, status, join link,
+ * and inline management actions. Built with document.createElement +
+ * direct event listener references throughout, deliberately NOT
+ * document.getElementById by id string (unlike renderEndRideButton/
+ * renderExportButtons above, which only ever render once per page):
+ * this function runs once per ride in a list of many, ids would
+ * collide and every button would end up wired to whichever ride's
+ * element the id happened to match first.
+ *
+ * @param ride - the ride this row represents.
+ */
+function buildRideListItem(ride: Ride): HTMLElement {
+  const joinUrl = ride.slug
+    ? `${window.location.origin}/${ride.slug}`
+    : `${window.location.origin}/?ride=${ride.id}`; // pre-slug rides (see Ride type's docs), old-style link still works
+  const statusLabel = ride.status === "active" ? "Active" : ride.status === "ended" ? "Ended" : "Created";
+
+  const item = document.createElement("div");
+  item.style.cssText = "border-top: 1px solid #eee; padding: 10px 0;";
+  item.innerHTML = `
+    <p><strong>${escapeHtml(ride.name)}</strong> — ${statusLabel}</p>
+    <p class="ride-link" style="font-size: 12px;">${joinUrl}</p>
+  `;
+
+  const actions = document.createElement("div");
+  actions.style.cssText = "display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px;";
+  item.appendChild(actions);
+
+  const errorEl = document.createElement("p");
+  errorEl.className = "error";
+  const showItemError = (err: unknown): void => {
+    errorEl.textContent = err instanceof Error ? err.message : String(err);
+  };
+
+  if (ride.status !== "ended") {
+    const endButton = document.createElement("button");
+    endButton.textContent = "End Ride";
+    endButton.style.background = "#c62828";
+    endButton.addEventListener("click", async () => {
+      endButton.disabled = true;
+      try {
+        await endRide(ride.id);
+        endButton.textContent = "Ended";
+      } catch (err) {
+        showItemError(err);
+        endButton.disabled = false; // let them retry if it failed
+      }
+    });
+    actions.appendChild(endButton);
+  }
+
+  const safeFileNamePart = ride.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+
+  const gpxButton = document.createElement("button");
+  gpxButton.textContent = "Export GPX";
+  gpxButton.style.background = "#555";
+  gpxButton.addEventListener("click", async () => {
+    try {
+      const samples = await fetchHistorySamples(ride.id);
+      downloadTextFile(`${safeFileNamePart}.gpx`, samplesToGpx(ride.name, samples), "application/gpx+xml");
+    } catch (err) {
+      showItemError(err);
+    }
+  });
+  actions.appendChild(gpxButton);
+
+  const csvButton = document.createElement("button");
+  csvButton.textContent = "Export CSV";
+  csvButton.style.background = "#555";
+  csvButton.addEventListener("click", async () => {
+    try {
+      const samples = await fetchHistorySamples(ride.id);
+      downloadTextFile(`${safeFileNamePart}.csv`, samplesToCsv(samples), "text/csv");
+    } catch (err) {
+      showItemError(err);
+    }
+  });
+  actions.appendChild(csvButton);
+
+  item.appendChild(errorEl);
+  return item;
 }
 
 /**

@@ -188,6 +188,32 @@ export async function fetchAllRideSlugs(): Promise<Set<string>> {
   return new Set((data ?? []).map((row) => row.slug as string)); // build a Set for fast "already taken?" checks
 }
 
+/**
+ * Fetches every ride, newest first, for the admin panel's ride list
+ * (renderRideList() in admin.ts) so an admin can find/manage/export a
+ * ride from a past session, not only the one they just created.
+ * Admin-only BY UI CONVENTION, not by RLS: the `rides` table's SELECT
+ * policy is `USING (true)` (anyone with the anon key can already read
+ * any ride, confirmed against the schema, that's what makes
+ * fetchAllRideSlugs() above possible too), this function is only ever
+ * called from behind admin.ts's sign-in gate, deliberately, the
+ * rider-facing app never lists rides publicly, see OPERATIONS.md's
+ * "Decisions made" section for the reasoning.
+ *
+ * @param limit - how many rides to fetch, newest first, defaults to a
+ *   reasonable page size rather than the entire table's history.
+ */
+export async function fetchAllRides(limit = 50): Promise<Ride[]> {
+  const { data, error } = await supabase
+    .from("rides")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) throw new Error(`Failed to fetch rides: ${error.message}`);
+  return (data ?? []) as Ride[];
+}
+
 // ── Participant functions ───────────────────────────────────────────
 
 /**
