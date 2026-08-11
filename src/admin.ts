@@ -15,6 +15,8 @@ import {
   startRide,
   fetchAllRides,
   fetchHistorySamples,
+  fetchParticipants,
+  updateParticipantTag,
   type Ride,
 } from "./core/adapters/supabase";
 import { parseGpx } from "./core/gpx";
@@ -288,8 +290,100 @@ function buildRideListItem(ride: Ride): HTMLElement {
   });
   actions.appendChild(csvButton);
 
+  const participantsButton = document.createElement("button");
+  participantsButton.textContent = "Manage participants";
+  participantsButton.style.background = "#555";
+  actions.appendChild(participantsButton);
+
+  // Lazily loaded: no point fetching every ride's participants up
+  // front just to render a list of ride rows, only fetch once this
+  // specific ride's button is actually clicked, and toggle
+  // open/closed on repeat clicks rather than re-fetching every time.
+  const participantsSection = document.createElement("div");
+  participantsSection.style.cssText = "margin-top: 8px;";
+  item.appendChild(participantsSection);
+  let participantsLoaded = false;
+
+  participantsButton.addEventListener("click", async () => {
+    if (participantsSection.innerHTML !== "") {
+      participantsSection.innerHTML = ""; // already open, second click just closes it
+      participantsLoaded = false;
+      return;
+    }
+    if (participantsLoaded) return; // a fetch is already in flight, ignore a double-click
+    participantsLoaded = true;
+    participantsSection.innerHTML = "<p>Loading participants…</p>";
+    try {
+      const participants = await fetchParticipants(ride.id);
+      participantsSection.innerHTML = "";
+      if (participants.length === 0) {
+        participantsSection.innerHTML = "<p>No one has joined yet.</p>";
+        return;
+      }
+      for (const participant of participants) {
+        participantsSection.appendChild(buildParticipantTagRow(participant.id, participant.tag, participant.is_spectator));
+      }
+    } catch (err) {
+      participantsSection.innerHTML = "";
+      showItemError(err);
+    }
+  });
+
   item.appendChild(errorEl);
   return item;
+}
+
+/**
+ * Builds one row of the participant tag-reassignment list: which
+ * device this is (a truncated id, there's no name field on a
+ * participant, see the schema), whether they're a spectator, and a
+ * dropdown to change/clear their tag. This is the admin-side
+ * counterpart to showTagPicker()'s rider-side self-select in main.ts,
+ * for correcting or assigning a tag after the fact (e.g. a marshal
+ * who forgot to self-select when they joined).
+ *
+ * @param participantId - which participant this row is for.
+ * @param currentTag - their current tag id, or null.
+ * @param isSpectator - shown as a small label, purely informational.
+ */
+function buildParticipantTagRow(participantId: string, currentTag: string | null, isSpectator: boolean): HTMLElement {
+  const row = document.createElement("div");
+  row.style.cssText = "display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 14px;";
+
+  const label = document.createElement("span");
+  label.textContent = `${participantId.slice(0, 8)}… ${isSpectator ? "(spectator)" : "(rider)"}`;
+  row.appendChild(label);
+
+  const select = document.createElement("select");
+  const noneOption = document.createElement("option");
+  noneOption.value = "";
+  noneOption.textContent = "No tag";
+  select.appendChild(noneOption);
+  for (const tag of bikeTheme.tags) {
+    const option = document.createElement("option");
+    option.value = tag.id;
+    option.textContent = `${tag.icon} ${tag.label}`;
+    select.appendChild(option);
+  }
+  select.value = currentTag ?? "";
+  row.appendChild(select);
+
+  const statusEl = document.createElement("span");
+  statusEl.style.cssText = "color: #2e7d32; font-size: 12px;";
+  row.appendChild(statusEl);
+
+  select.addEventListener("change", async () => {
+    statusEl.textContent = "";
+    try {
+      await updateParticipantTag(participantId, select.value || null);
+      statusEl.textContent = "Saved";
+    } catch (err) {
+      statusEl.textContent = err instanceof Error ? err.message : String(err);
+      statusEl.style.color = "#c62828";
+    }
+  });
+
+  return row;
 }
 
 /**

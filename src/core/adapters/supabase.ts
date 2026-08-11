@@ -364,6 +364,25 @@ export async function fetchParticipants(rideId: string): Promise<RideParticipant
   return (data ?? []) as RideParticipant[]; // default to an empty list, never null, simpler for callers
 }
 
+/**
+ * Admin-side override for a participant's tag, e.g. correcting a
+ * marshal who forgot to self-select "Marshal" when they joined (see
+ * showTagPicker() in main.ts for the rider-side self-select path,
+ * this is the other direction). Uses the same "a participant can
+ * update their own row" RLS policy as updateParticipantPosition()
+ * above (`USING (true)`, no ownership check, the schema's existing
+ * trust model, see its top-of-file comment), which already permits
+ * any caller to update any participant row, so no new grant/policy
+ * was needed for this.
+ *
+ * @param participantId - which participant's tag to change.
+ * @param tag - the new tag id (see bikeTheme.tags), or null to clear it.
+ */
+export async function updateParticipantTag(participantId: string, tag: string | null): Promise<void> {
+  const { error } = await supabase.from("ride_participants").update({ tag }).eq("id", participantId);
+  if (error) throw new Error(`Failed to update tag: ${error.message}`);
+}
+
 // ── Admin auth + ride management ────────────────────────────────────
 // WHAT: unlike regular riders/spectators, the ~10 admins genuinely log
 // in (build prompt's "Accounts / auth" section), using Supabase Auth's
