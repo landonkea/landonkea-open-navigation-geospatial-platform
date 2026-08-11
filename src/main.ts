@@ -6,7 +6,7 @@
 
 import "maplibre-gl/dist/maplibre-gl.css"; // MapLibre's required stylesheet, bundled by Vite, not a CDN link
 import type { Map as MapLibreMap } from "maplibre-gl"; // just the type, for setUpViewSwitcher()'s parameter below
-import { createMap, setParticipantLayer, setMapView, type MapViewId, type ParticipantFeature } from "./core/map";
+import { createMap, setParticipantLayer, setMapView, setRouteLayer, type MapViewId, type ParticipantFeature } from "./core/map";
 import { bikeTheme } from "./theme/bike/config";
 import { joinAsRider, joinAsSpectator, retryLocationShare, type JoinResult, type SpectatorReason } from "./core/join";
 import { startPolling } from "./core/sync";
@@ -14,7 +14,7 @@ import { signalStatus, type SignalStatus } from "./core/geo";
 import { detectLocationGuidance } from "./core/locationHelp";
 import { keepWakeLockAlive } from "./core/wakeLock";
 import { isPossiblyStuck } from "./core/stuckDetection";
-import { fetchRide, fetchRideBySlug, type RideParticipant } from "./core/adapters/supabase";
+import { fetchRide, fetchRideBySlug, fetchRouteForRide, type RideParticipant } from "./core/adapters/supabase";
 
 function applyBaseStyles(): void {
   document.title = `${bikeTheme.eventWordSingular} live map`; // e.g. "ride live map"
@@ -394,6 +394,12 @@ async function main(): Promise<void> {
     return;
   }
   const rideId = ride.id; // the real internal uuid, used for every call from here on, the slug's only job was finding this
+
+  // Draw the ride's planned route, if it has one uploaded (a "no
+  // fixed route" ride, per the build prompt, is valid too, in which
+  // case this is just null and setRouteLayer() draws nothing).
+  const route = await fetchRouteForRide(rideId);
+  if (route?.geojson) setRouteLayer(map, route.geojson);
 
   const banner = document.createElement("div");
   banner.id = "join-banner";

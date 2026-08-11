@@ -28,4 +28,10 @@ export default {
       },
     },
   },
+  test: {
+    // Vitest defaults to a plain Node environment, which has no
+    // DOMParser/document/etc. jsdom simulates a real browser DOM so
+    // tests that touch those APIs (see gpx.test.ts) actually work.
+    environment: "jsdom",
+  },
 };

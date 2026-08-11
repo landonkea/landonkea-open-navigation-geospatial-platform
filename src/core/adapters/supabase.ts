@@ -367,3 +367,49 @@ export async function becomeRider(participantId: string): Promise<void> {
 
   if (error) throw new Error(`Failed to switch to rider mode: ${error.message}`);
 }
+
+// ── Route functions ──────────────────────────────────────────────────
+
+export type Route = {
+  id: string;
+  ride_id: string;
+  source: "gpx" | "drawn" | "none";
+  geojson: GeoJSON.FeatureCollection | null;
+  created_at: string;
+};
+
+/**
+ * Saves a route (the route line plus any waypoints, already parsed
+ * into GeoJSON by src/core/gpx.ts) for a ride. Admin-only, matches
+ * the "admins can create routes" RLS policy.
+ *
+ * @param rideId - which ride this route belongs to.
+ * @param geojson - the parsed GeoJSON FeatureCollection (see gpx.ts).
+ * @returns the newly created route row.
+ */
+export async function createRoute(rideId: string, geojson: GeoJSON.FeatureCollection): Promise<Route> {
+  const { data, error } = await supabase
+    .from("routes")
+    .insert({ ride_id: rideId, source: "gpx", geojson })
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to save route: ${error.message}`);
+  return data as Route;
+}
+
+/**
+ * Fetches a ride's route, if it has one. Used by the rider-facing map
+ * to draw the planned route line/waypoints (see the build prompt's
+ * "Rides and routes" section, not every ride has a fixed route, a
+ * "no fixed route" ride is valid too, this simply returns null then).
+ *
+ * @param rideId - which ride's route to fetch.
+ * @returns the route row, or null if this ride has no route yet.
+ */
+export async function fetchRouteForRide(rideId: string): Promise<Route | null> {
+  const { data, error } = await supabase.from("routes").select("*").eq("ride_id", rideId).maybeSingle();
+
+  if (error) throw new Error(`Failed to fetch route: ${error.message}`);
+  return data as Route | null;
+}

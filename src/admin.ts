@@ -6,7 +6,8 @@
 // manipulation, no framework, same as main.ts, this is a handful of
 // screens, not enough complexity to justify one.
 
-import { signInAdmin, isGrantedAdmin, createRide, type Ride } from "./core/adapters/supabase";
+import { signInAdmin, isGrantedAdmin, createRide, createRoute, type Ride } from "./core/adapters/supabase";
+import { parseGpx } from "./core/gpx";
 import QRCode from "qrcode";
 
 const root = document.getElementById("admin-root") as HTMLDivElement; // the one mount point from admin.html
@@ -72,13 +73,8 @@ function renderSignIn(): void {
 
 /**
  * Renders the "create a ride" form for a confirmed, signed-in admin,
- * and shows the resulting join link once a ride's created.
- *
- * NOTE on the link format: this is the current per-ride link
- * (?ride=<uuid>), not the permanent short QR link discussed
- * separately, that decision is still open, see this repo's
- * conversation history, this screen will need a small update once
- * that's decided either way.
+ * and shows the resulting join link + a GPX route upload once a ride
+ * is created.
  */
 function renderCreateRide(adminUserId: string): void {
   root.innerHTML = `
@@ -118,6 +114,50 @@ function renderCreateRide(adminUserId: string): void {
       resultEl.appendChild(canvas);
       await QRCode.toCanvas(canvas, joinUrl, { width: 220 });
       nameInput.value = ""; // clear the field so creating another ride starts fresh
+
+      renderRouteUpload(resultEl, ride.id); // let the admin optionally add a GPX route right after creating the ride
+    } catch (err) {
+      errorEl.textContent = err instanceof Error ? err.message : String(err);
+    }
+  });
+}
+
+/**
+ * Renders a GPX file upload control under a just-created ride, parses
+ * the file entirely in the browser (see core/gpx.ts, no server-side
+ * processing needed for plain XML) and saves the result as that
+ * ride's route. Optional, a ride with no route uploaded is a valid
+ * "no fixed route" ride (build prompt's own supported case).
+ *
+ * @param container - where to render the upload control.
+ * @param rideId - which ride this route belongs to.
+ */
+function renderRouteUpload(container: HTMLElement, rideId: string): void {
+  const section = document.createElement("div");
+  section.innerHTML = `
+    <p style="margin-top: 20px;">Optional: upload a GPX route file</p>
+    <input type="file" id="gpx-file" accept=".gpx" />
+    <p class="error" id="gpx-error"></p>
+    <p id="gpx-success" style="color: #2e7d32;"></p>
+  `;
+  container.appendChild(section);
+
+  const fileInput = document.getElementById("gpx-file") as HTMLInputElement;
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files?.[0];
+    if (!file) return; // the picker was opened and cancelled, nothing to do
+
+    const errorEl = document.getElementById("gpx-error") as HTMLParagraphElement;
+    const successEl = document.getElementById("gpx-success") as HTMLParagraphElement;
+    errorEl.textContent = "";
+    successEl.textContent = "";
+
+    try {
+      const text = await file.text(); // read the uploaded file's raw contents
+      const geojson = parseGpx(text); // throws a plain-language error on a genuinely malformed file, see gpx.ts
+      await createRoute(rideId, geojson); // saves it, the rider-facing map fetches this automatically (see main.ts)
+      const waypointCount = geojson.features.filter((f) => f.properties?.kind === "waypoint").length;
+      successEl.textContent = `Route saved${waypointCount > 0 ? ` (${waypointCount} waypoint${waypointCount === 1 ? "" : "s"})` : ""}.`;
     } catch (err) {
       errorEl.textContent = err instanceof Error ? err.message : String(err);
     }

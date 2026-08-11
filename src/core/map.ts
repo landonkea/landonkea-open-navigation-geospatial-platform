@@ -245,3 +245,74 @@ export function setParticipantLayer(
     paint: { "text-color": "#ffffff" },
   });
 }
+
+/**
+ * Draws a ride's planned route on the map: the route line itself
+ * (build prompt's "Rides and routes" section) plus any named
+ * waypoints (build prompt's "Waypoints from the GPX file" section),
+ * visually distinct from moving participant dots since they're fixed
+ * reference points, not live positions.
+ *
+ * Safe to call with an empty/no-route FeatureCollection (a "no fixed
+ * route" ride, a real supported case per the build prompt), it just
+ * draws nothing in that case rather than erroring.
+ *
+ * @param map - the live map instance, must already have a loaded
+ *   style (same requirement as setParticipantLayer(), see that
+ *   function's caller in main.ts for why).
+ * @param routeGeoJSON - the parsed GPX data (see core/gpx.ts), a
+ *   LineString feature for the route plus Point features for
+ *   waypoints.
+ */
+export function setRouteLayer(map: maplibregl.Map, routeGeoJSON: GeoJSON.FeatureCollection): void {
+  const sourceId = "route"; // separate from "participants", so route data and live positions never mix
+
+  const existingSource = map.getSource(sourceId);
+  if (existingSource) {
+    (existingSource as maplibregl.GeoJSONSource).setData(routeGeoJSON);
+    return;
+  }
+
+  map.addSource(sourceId, { type: "geojson", data: routeGeoJSON });
+
+  // The route line itself, drawn UNDER the participant dots (added
+  // before setParticipantLayer() is ever called, so it naturally
+  // renders below), so live riders are never visually hidden behind
+  // their own planned route.
+  map.addLayer({
+    id: "route-line",
+    type: "line",
+    source: sourceId,
+    filter: ["==", ["get", "kind"], "route"], // only the LineString feature, not waypoint Points
+    layout: { "line-join": "round", "line-cap": "round" },
+    paint: { "line-color": "#1f6feb", "line-width": 4, "line-opacity": 0.7 },
+  });
+
+  // Waypoint pins, visually distinct (a diamond-ish square marker, not
+  // a circle) from participant dots so they're never confused with a
+  // person at a glance.
+  map.addLayer({
+    id: "route-waypoints",
+    type: "circle",
+    source: sourceId,
+    filter: ["==", ["get", "kind"], "waypoint"],
+    paint: {
+      "circle-color": "#f57c00", // orange, distinct from every participant status color
+      "circle-radius": 7,
+      "circle-stroke-width": 2,
+      "circle-stroke-color": "#ffffff",
+    },
+  });
+  map.addLayer({
+    id: "route-waypoint-labels",
+    type: "symbol",
+    source: sourceId,
+    filter: ["==", ["get", "kind"], "waypoint"],
+    layout: {
+      "text-field": ["get", "name"], // the waypoint's name from the GPX file, e.g. "Rest Stop"
+      "text-offset": [0, 1.4], // below the pin, not on top of it
+      "text-size": 12,
+    },
+    paint: { "text-color": "#333333", "text-halo-color": "#ffffff", "text-halo-width": 1.5 },
+  });
+}
