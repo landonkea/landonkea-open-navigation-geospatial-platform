@@ -427,16 +427,41 @@ export async function createRide(name: string, createdByUserId: string): Promise
     .from("rides")
     .insert({
       name,
-      status: "active",
+      // Not "active": the schema's own default is "created" (an
+      // explicit not-yet-started state, `rides_status_check` has
+      // always allowed it), this used to be overridden here to jump
+      // straight to "active" on creation, skipping that state
+      // entirely, an admin now has to explicitly call startRide()
+      // below (build prompt's "Ride lifecycle" section wants a real
+      // start step, matching the "End Ride" control this already had).
+      status: "created",
       created_by: createdByUserId,
-      started_at: new Date().toISOString(),
-      slug,
+      slug, // started_at stays null until startRide() actually starts it
     })
     .select()
     .single();
 
   if (error) throw new Error(`Failed to create ride: ${error.message}`);
   return data as Ride;
+}
+
+/**
+ * Explicitly starts a ride: flips it from "created" to "active" and
+ * stamps started_at. Until this is called, riders can't actually join
+ * (the "anyone can join an active ride" RLS policy on
+ * ride_participants requires status = 'active', see that policy in
+ * the schema), the rider-facing app shows a plain "hasn't started
+ * yet" message instead (see main.ts). Symmetric with endRide() below.
+ *
+ * @param rideId - which ride to start.
+ */
+export async function startRide(rideId: string): Promise<void> {
+  const { error } = await supabase
+    .from("rides")
+    .update({ status: "active", started_at: new Date().toISOString() })
+    .eq("id", rideId);
+
+  if (error) throw new Error(`Failed to start ride: ${error.message}`);
 }
 
 /**

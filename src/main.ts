@@ -545,6 +545,25 @@ async function main(): Promise<void> {
     document.body.appendChild(banner);
     return;
   }
+  if (ride.status === "created" || ride.status === "ended") {
+    // Either the admin hasn't clicked "Start Ride" yet, or the ride
+    // already ended, either way joining would just fail against RLS
+    // ("anyone can join an active ride" requires status = 'active'),
+    // show a plain, honest message for each case instead of letting
+    // someone hit a confusing permission error. (The "already
+    // mid-ride, admin ends it while I'm connected" case is handled
+    // separately, see onRideEnded below, this only covers arriving at
+    // an already-ended ride's link fresh.)
+    const banner = document.createElement("div");
+    banner.id = "join-banner";
+    banner.textContent =
+      ride.status === "created"
+        ? `This ${bikeTheme.eventWordSingular} hasn't started yet, check back soon.`
+        : `This ${bikeTheme.eventWordSingular} has ended. Thanks for joining!`;
+    document.body.appendChild(banner);
+    return;
+  }
+
   const rideId = ride.id; // the real internal uuid, used for every call from here on, the slug's only job was finding this
 
   // Draw the ride's planned route, if it has one uploaded (a "no

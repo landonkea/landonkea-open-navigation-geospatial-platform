@@ -12,6 +12,7 @@ import {
   createRide,
   createRoute,
   endRide,
+  startRide,
   fetchAllRides,
   fetchHistorySamples,
   type Ride,
@@ -139,6 +140,7 @@ function renderCreateRide(adminUserId: string): void {
       const joinUrl = `${window.location.origin}/${ride.slug}`;
       resultEl.innerHTML = `
         <p>Ride created: <strong>${escapeHtml(ride.name)}</strong></p>
+        <p>Riders can't join until you click "Start Ride" below, even with the link.</p>
         <p>Share this link, or have riders scan the QR code:</p>
         <p class="ride-link">${joinUrl}</p>
       `;
@@ -154,6 +156,7 @@ function renderCreateRide(adminUserId: string): void {
 
       renderRouteUpload(resultEl, ride.id); // let the admin optionally add a GPX route right after creating the ride
       renderRouteDrawer(resultEl, ride.id); // alternative to GPX upload: click-to-draw a route directly on the map
+      renderStartRideButton(resultEl, ride.id); // explicit lifecycle control: a ride starts "created", riders can't join until this is clicked
       renderEndRideButton(resultEl, ride.id); // explicit lifecycle control, build prompt's "Ride lifecycle" section
       renderExportButtons(resultEl, ride); // build prompt's "Ride data export" section
       loadAndRenderRideList(rideListContainer); // refresh so the just-created ride shows up in the list below immediately
@@ -223,6 +226,23 @@ function buildRideListItem(ride: Ride): HTMLElement {
     errorEl.textContent = err instanceof Error ? err.message : String(err);
   };
 
+  if (ride.status === "created") {
+    const startButton = document.createElement("button");
+    startButton.textContent = "Start Ride";
+    startButton.style.background = "#2e7d32";
+    startButton.addEventListener("click", async () => {
+      startButton.disabled = true;
+      try {
+        await startRide(ride.id);
+        startButton.textContent = "Started";
+      } catch (err) {
+        showItemError(err);
+        startButton.disabled = false; // let them retry if it failed
+      }
+    });
+    actions.appendChild(startButton);
+  }
+
   if (ride.status !== "ended") {
     const endButton = document.createElement("button");
     endButton.textContent = "End Ride";
@@ -270,6 +290,43 @@ function buildRideListItem(ride: Ride): HTMLElement {
 
   item.appendChild(errorEl);
   return item;
+}
+
+/**
+ * Renders an explicit "Start Ride" button under a just-created ride.
+ * createRide() now leaves a new ride in the "created" state (the
+ * schema's own default, previously always overridden to jump straight
+ * to "active"), riders can't actually join until this flips it to
+ * "active" (the "anyone can join an active ride" RLS policy on
+ * ride_participants requires it, see startRide()'s docs), giving an
+ * admin a real moment to double check the route/name before anyone
+ * can show up on the map. Symmetric with renderEndRideButton() below.
+ *
+ * @param container - where to render the button.
+ * @param rideId - which ride this starts.
+ */
+function renderStartRideButton(container: HTMLElement, rideId: string): void {
+  const section = document.createElement("div");
+  section.innerHTML = `
+    <button id="start-ride-button" style="background: #2e7d32; margin-top: 20px;">Start Ride</button>
+    <p class="error" id="start-ride-error"></p>
+    <p id="start-ride-success" style="color: #2e7d32;"></p>
+  `;
+  container.appendChild(section);
+
+  const button = document.getElementById("start-ride-button") as HTMLButtonElement;
+  button.addEventListener("click", async () => {
+    const errorEl = document.getElementById("start-ride-error") as HTMLParagraphElement;
+    const successEl = document.getElementById("start-ride-success") as HTMLParagraphElement;
+    button.disabled = true;
+    try {
+      await startRide(rideId);
+      successEl.textContent = "Ride started. Riders can now join using the link/QR code above.";
+    } catch (err) {
+      errorEl.textContent = err instanceof Error ? err.message : String(err);
+      button.disabled = false; // let them retry if it failed
+    }
+  });
 }
 
 /**
