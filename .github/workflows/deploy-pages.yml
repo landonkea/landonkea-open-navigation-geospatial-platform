@@ -1,0 +1,76 @@
+# ── Redundant hosting: GitHub Pages ──────────────────────────────────
+# WHAT: builds and deploys this app to GitHub Pages on every push to
+# main, as a second, independent live copy alongside Cloudflare Pages
+# (the primary host). If Cloudflare ever has an outage, this app is
+# still reachable at https://landonkea.github.io/<repo-name>/, a
+# genuinely separate provider, not just a second URL on the same
+# infrastructure.
+name: Deploy to GitHub Pages
+
+# Runs on every push to main, same trigger as Cloudflare's own
+# auto-deploy, so both hosts always serve the exact same code, never
+# out of sync with each other.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # also allow manually re-running from the Actions tab
+
+# GitHub Pages deployments need these specific permissions to publish.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22" # matches Cloudflare's build environment (node 22.16.0)
+
+      - name: Install dependencies
+        run: npm ci # exact, reproducible install from package-lock.json
+
+      - name: Type-check
+        run: npm run type-check # tsc --noEmit, catches any real type error before deploying
+
+      # GitHub Pages serves from a subpath (github.io/<repo>/), not the
+      # domain root the way Cloudflare Pages does, so every asset
+      # reference needs that subpath prefix. Vite's --base flag
+      # handles this, only used here for the GitHub Pages build,
+      # Cloudflare's own build (run separately, on Cloudflare's own
+      # infrastructure) still uses the plain root-relative build.
+      - name: Build with the correct base path for GitHub Pages
+        run: npx vite build --base=/${{ github.event.repository.name }}/
+
+      # GitHub Pages has no server-side rewrite support (unlike
+      # Cloudflare's _redirects file, see public/_redirects), so a
+      # direct visit to a ride's short link (e.g. /08112026) would
+      # otherwise 404. The standard workaround: GitHub Pages still
+      # serves a custom 404.html for any unmatched path, so making
+      # 404.html an exact copy of index.html means every path loads
+      # the same app shell, which then reads the real path itself
+      # (see src/main.ts's getRideIdFromUrl()).
+      - name: Copy index.html to 404.html for client-side route support
+        run: cp dist/index.html dist/404.html
+
+      - name: Upload build output
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

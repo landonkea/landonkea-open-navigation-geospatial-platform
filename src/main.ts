@@ -89,8 +89,14 @@ function getRideIdFromUrl(): string | null {
   const fromQuery = new URLSearchParams(window.location.search).get("ride");
   if (fromQuery) return fromQuery;
 
-  const pathSlug = window.location.pathname.replace(/^\/+/, ""); // strip the leading slash
-  return pathSlug || null; // empty path (just "/") means no ride
+  // Split the path into segments and take the LAST one, not just
+  // "everything after the first slash". This makes the same code work
+  // whether the app is deployed at a domain root (Cloudflare Pages,
+  // path is "/08112026", one segment) or under a subpath (GitHub
+  // Pages, path is "/repo-name/08112026", two segments), the ride
+  // slug is always whatever comes last either way.
+  const segments = window.location.pathname.split("/").filter((segment) => segment.length > 0);
+  return segments.length > 0 ? segments[segments.length - 1] : null;
 }
 
 /**
