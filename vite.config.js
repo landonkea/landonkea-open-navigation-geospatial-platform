@@ -33,5 +33,11 @@ export default {
     // DOMParser/document/etc. jsdom simulates a real browser DOM so
     // tests that touch those APIs (see gpx.test.ts) actually work.
     environment: "jsdom",
+    // Vitest's default file glob would otherwise also pick up
+    // e2e/*.spec.ts, which uses @playwright/test's own test()/expect()
+    // (a real browser, not jsdom), not vitest's, the two runners
+    // aren't interchangeable. Scoping to src/ keeps unit tests (this
+    // file) and e2e tests (`npm run test:e2e`) on separate runners.
+    include: ["src/**/*.{test,spec}.ts"],
   },
 };
