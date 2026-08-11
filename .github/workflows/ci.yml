@@ -25,6 +25,19 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # These are Supabase CLI's fixed, publicly documented local-only
+    # defaults (this project doesn't override the JWT secret in
+    # supabase/config.toml), not real secrets, matching the ones
+    # e2e/localDb.ts already hardcodes for the same reason. Set at the
+    # job level, not just the e2e step: src/core/adapters/supabase.ts
+    # throws at module-load time if these are missing, and several
+    # "pure function" unit tests (e.g. sync.test.ts) transitively
+    # import that module too, so they need this set just as much as
+    # the e2e test does, confirmed the hard way on this workflow's
+    # first real run.
+    env:
+      VITE_SUPABASE_URL: http://127.0.0.1:54321
+      VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -59,14 +72,7 @@ jobs:
       - name: Install Playwright's browser
         run: npx playwright install --with-deps chromium
 
-      # These are Supabase CLI's fixed, publicly documented local-only
-      # defaults (this project doesn't override the JWT secret in
-      # supabase/config.toml), not real secrets, matching the ones
-      # e2e/localDb.ts already hardcodes for the same reason.
       - name: Run e2e tests
-        env:
-          VITE_SUPABASE_URL: http://127.0.0.1:54321
-          VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
         run: npm run test:e2e
 
       - name: Upload Playwright report on failure
