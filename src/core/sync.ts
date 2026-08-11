@@ -8,6 +8,7 @@
 
 import { fetchParticipants, updateParticipantPosition, type RideParticipant } from "./adapters/supabase";
 import { distanceMeters, headingDegrees, type GpsPoint } from "./geo";
+import { countsAsMovement } from "./stuckDetection";
 
 // The last GPS reading this device took, kept between polls so
 // headingDegrees()/speedMetersPerSecond() have a previous point to
@@ -71,13 +72,24 @@ export async function pollOnce(
             ((currentPoint.timestampMs - previousPoint.timestampMs) / 1000)
           : null;
 
-      await updateParticipantPosition(participantId, {
-        lat: currentPoint.lat,
-        lng: currentPoint.lng,
-        accuracyM: currentPoint.accuracyM,
-        headingDeg,
-        speedMps,
-      });
+      // Whether this counts as "real movement" or just GPS jitter from
+      // standing still, drives whether last_moved_at bumps forward
+      // (see stuckDetection.ts and updateParticipantPosition's docs).
+      // First-ever poll (no previousPoint yet) counts as movement, so
+      // a rider who just joined isn't immediately flagged stuck.
+      const moved = !previousPoint || countsAsMovement(distanceMeters(previousPoint, currentPoint));
+
+      await updateParticipantPosition(
+        participantId,
+        {
+          lat: currentPoint.lat,
+          lng: currentPoint.lng,
+          accuracyM: currentPoint.accuracyM,
+          headingDeg,
+          speedMps,
+        },
+        moved,
+      );
 
       previousPoint = currentPoint; // remember this reading for next poll's heading/speed calculation
     } catch (err) {

@@ -91,6 +91,12 @@ export type RideParticipant = {
   speed_mps: number | null;
   joined_at: string;
   last_seen_at: string;
+  // Updated only when position meaningfully changes (see
+  // src/core/stuckDetection.ts's countsAsMovement()), left untouched
+  // while stationary. Powers the "possibly stuck" admin flag, not
+  // connection-status, a rider can have perfect signal (recent
+  // last_seen_at) while genuinely stopped.
+  last_moved_at: string;
 };
 
 // ── Ride functions ──────────────────────────────────────────────────
@@ -160,6 +166,12 @@ export async function joinRide(
  *   joinRide's return value).
  * @param position - the latest GPS reading plus derived heading/speed
  *   (see src/core/geo.ts for how heading/speed get computed).
+ * @param movedSinceLastPoll - whether this update counts as real
+ *   movement, not just GPS jitter (see stuckDetection.ts's
+ *   countsAsMovement(), computed by the caller since it needs the
+ *   previous point, which this adapter doesn't track). When true,
+ *   last_moved_at is bumped to now; when false, it's left as-is, so
+ *   it keeps reflecting whenever this participant last actually moved.
  */
 export async function updateParticipantPosition(
   participantId: string,
@@ -170,17 +182,23 @@ export async function updateParticipantPosition(
     headingDeg: number | null;
     speedMps: number | null;
   },
+  movedSinceLastPoll: boolean,
 ): Promise<void> {
+  const update: Record<string, unknown> = {
+    lat: position.lat,
+    lng: position.lng,
+    accuracy_m: position.accuracyM,
+    heading_deg: position.headingDeg,
+    speed_mps: position.speedMps,
+    last_seen_at: new Date().toISOString(), // marks this update as "fresh" for signal-status purposes
+  };
+  if (movedSinceLastPoll) {
+    update.last_moved_at = new Date().toISOString(); // only bumped on real movement, see this function's docs
+  }
+
   const { error } = await supabase
     .from("ride_participants")
-    .update({
-      lat: position.lat,
-      lng: position.lng,
-      accuracy_m: position.accuracyM,
-      heading_deg: position.headingDeg,
-      speed_mps: position.speedMps,
-      last_seen_at: new Date().toISOString(), // marks this update as "fresh" for signal-status purposes
-    })
+    .update(update)
     .eq("id", participantId); // only ever update this device's own row
 
   if (error) throw new Error(`Failed to update position: ${error.message}`);

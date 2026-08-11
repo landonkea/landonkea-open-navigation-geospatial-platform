@@ -25,3 +25,33 @@
  * number.
  */
 export const POST_RIDE_DISCONNECT_MINUTES = 20;
+
+/**
+ * Same idea as POST_RIDE_DISCONNECT_MINUTES above, but for an admin's
+ * own device, if an admin is also riding (and so also being tracked
+ * as a participant like anyone else, separate from their logged-in
+ * admin session used for ride management). A separate, longer default
+ * since an admin may still be wrapping up ride-closing tasks
+ * (confirming everyone's accounted for, handling a straggler) after
+ * the ride officially ends, when a regular rider's tracking has
+ * already stopped.
+ */
+export const POST_RIDE_ADMIN_DISCONNECT_MINUTES = 45;
+
+/**
+ * How many minutes a participant's position must stay essentially
+ * unchanged (see STUCK_DETECTION_MAX_DISTANCE_METERS below for what
+ * "unchanged" means) before they're flagged to admins as possibly
+ * stuck/broken down, rather than just stopped for a normal break.
+ * Placeholder value, deliberately generous to avoid false alarms over
+ * a genuine rest stop, tune based on real-world testing.
+ */
+export const STUCK_DETECTION_WINDOW_MINUTES = 15;
+
+/**
+ * How far (in meters) a participant must move to count as "still
+ * moving" for the stuck-detection check above. Set above typical GPS
+ * jitter (a stationary phone's GPS reading can drift a few meters on
+ * its own) so standing still doesn't falsely register as movement.
+ */
+export const STUCK_DETECTION_MAX_DISTANCE_METERS = 30;
