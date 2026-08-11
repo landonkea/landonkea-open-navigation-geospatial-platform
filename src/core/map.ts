@@ -186,7 +186,7 @@ export function setParticipantLayer(
     source: sourceId, // pull data from the source we just added
     filter: ["has", "point_count"], // only features that ARE a cluster
     paint: {
-      "circle-color": "#1f6feb", // brand blue
+      "circle-color": "#ff7e1f", // brand sunburst orange
       "circle-radius": 18, // pixel radius of the bubble
       "circle-stroke-width": 2, // white outline width
       "circle-stroke-color": "#ffffff", // white outline color
@@ -221,7 +221,7 @@ export function setParticipantLayer(
         "green", "#2e7d32",
         "yellow", "#f9a825",
         "red", "#c62828",
-        "#1f6feb", // fallback if "status" is ever missing
+        "#ff7e1f", // fallback (brand orange) if "status" is ever missing
       ],
       "circle-radius": 8,
       "circle-stroke-width": 2,
@@ -285,19 +285,23 @@ export function setRouteLayer(map: maplibregl.Map, routeGeoJSON: GeoJSON.Feature
     source: sourceId,
     filter: ["==", ["get", "kind"], "route"], // only the LineString feature, not waypoint Points
     layout: { "line-join": "round", "line-cap": "round" },
-    paint: { "line-color": "#1f6feb", "line-width": 4, "line-opacity": 0.7 },
+    paint: { "line-color": "#c65a00", "line-width": 4, "line-opacity": 0.7 }, // deep burnt orange, darker than the dots for real contrast against them
   });
 
   // Waypoint pins, visually distinct (a diamond-ish square marker, not
   // a circle) from participant dots so they're never confused with a
-  // person at a glance.
+  // person at a glance. Light-yellow accent specifically (not orange
+  // like the route line/participant dots/cluster bubbles), the whole
+  // point of this color is standing apart from everything else drawn
+  // on the map, that stopped being true once orange became the
+  // primary brand color for participant dots too.
   map.addLayer({
     id: "route-waypoints",
     type: "circle",
     source: sourceId,
     filter: ["==", ["get", "kind"], "waypoint"],
     paint: {
-      "circle-color": "#f57c00", // orange, distinct from every participant status color
+      "circle-color": "#ffca28", // light-yellow accent, distinct from every participant status color and the route line
       "circle-radius": 7,
       "circle-stroke-width": 2,
       "circle-stroke-color": "#ffffff",

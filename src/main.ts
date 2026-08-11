@@ -27,34 +27,42 @@ function applyBaseStyles(): void {
 
   const themeColorMeta = document.createElement("meta");
   themeColorMeta.name = "theme-color";
-  themeColorMeta.content = "#1f6feb";
+  themeColorMeta.content = "#ff7e1f";
   document.head.appendChild(themeColorMeta);
 
+  // Brand palette: sunburst orange, as a gradient, with a light-yellow
+  // accent (user's explicit request). Deliberately NOT applied to the
+  // roster's green/yellow/red signal-status dots, the "possibly
+  // stuck" warning, or the offline indicator, those colors carry real
+  // functional meaning (online/degraded/lost signal, a real problem
+  // state), restyling them for brand consistency would make the app
+  // harder to read at a glance, exactly what those colors exist to
+  // prevent.
   const layoutStyle = document.createElement("style");
   layoutStyle.textContent = `
     html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
     #map { position: absolute; inset: 0; }
-    #join-banner { position: absolute; top: 0; left: 0; right: 0; z-index: 10; background: #1f6feb; color: white; padding: 8px 12px; font-size: 14px; text-align: center; }
-    #join-banner button { margin-left: 10px; padding: 4px 10px; font-size: 13px; background: white; color: #1f6feb; border: none; border-radius: 4px; cursor: pointer; }
+    #join-banner { position: absolute; top: 0; left: 0; right: 0; z-index: 10; background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; padding: 8px 12px; font-size: 14px; text-align: center; }
+    #join-banner button { margin-left: 10px; padding: 4px 10px; font-size: 13px; background: #fff8e1; color: #ff7e1f; border: none; border-radius: 4px; cursor: pointer; }
     #join-choice { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
     #join-choice .card { background: white; border-radius: 10px; padding: 28px; max-width: 360px; text-align: center; }
     #join-choice h2 { margin-top: 0; }
     #join-choice button { display: block; width: 100%; padding: 14px; margin: 8px 0; font-size: 16px; border-radius: 6px; border: none; cursor: pointer; }
-    #join-choice .ride-btn { background: #1f6feb; color: white; }
-    #join-choice .watch-btn { background: #eee; color: #222; }
+    #join-choice .ride-btn { background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; }
+    #join-choice .watch-btn { background: #fff3e0; color: #7a4a00; }
     #location-help { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
     #location-help .card { background: white; border-radius: 10px; padding: 24px; max-width: 380px; }
     #location-help ol { padding-left: 20px; }
     #location-help li { margin-bottom: 8px; }
-    #location-help button { padding: 10px 16px; font-size: 15px; background: #1f6feb; color: white; border: none; border-radius: 6px; cursor: pointer; margin-top: 8px; }
+    #location-help button { padding: 10px 16px; font-size: 15px; background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; border: none; border-radius: 6px; cursor: pointer; margin-top: 8px; }
     #view-switcher { position: absolute; bottom: 12px; left: 12px; z-index: 10; background: white; border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); overflow: hidden; }
     #view-switcher button { display: block; width: 90px; padding: 8px; font-size: 13px; border: none; background: white; cursor: pointer; }
-    #view-switcher button.active { background: #1f6feb; color: white; }
-    #roster-toggle { position: absolute; bottom: 12px; right: 60px; z-index: 10; background: white; border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
+    #view-switcher button.active { background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; }
+    #roster-toggle { position: absolute; bottom: 12px; right: 60px; z-index: 10; background: #fff8e1; border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
     #roster-panel { position: absolute; inset: 0; z-index: 15; background: white; overflow-y: auto; padding: 16px; }
     #roster-panel h2 { margin-top: 40px; }
     #roster-panel .summary { color: #555; margin-bottom: 12px; }
-    #roster-panel .close-roster { position: absolute; top: 12px; right: 12px; padding: 8px 14px; background: #eee; border: none; border-radius: 6px; cursor: pointer; }
+    #roster-panel .close-roster { position: absolute; top: 12px; right: 12px; padding: 8px 14px; background: #fff3e0; border: none; border-radius: 6px; cursor: pointer; }
     #roster-panel ul { list-style: none; padding: 0; margin: 0; }
     #roster-panel li { display: flex; align-items: center; gap: 10px; padding: 10px; border-bottom: 1px solid #eee; }
     #roster-panel .dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
@@ -62,18 +70,18 @@ function applyBaseStyles(): void {
     #roster-panel .dot.yellow { background: #f9a825; }
     #roster-panel .dot.red { background: #c62828; }
     #roster-panel .stuck-flag { color: #c62828; font-weight: bold; font-size: 12px; }
-    #install-prompt { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 10; background: white; border-radius: 8px; padding: 10px 16px; box-shadow: 0 1px 6px rgba(0,0,0,0.3); font-size: 13px; display: flex; align-items: center; gap: 10px; max-width: 90%; }
-    #install-prompt button { padding: 6px 12px; font-size: 13px; background: #1f6feb; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    #install-prompt { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 10; background: #fff8e1; border-radius: 8px; padding: 10px 16px; box-shadow: 0 1px 6px rgba(0,0,0,0.3); font-size: 13px; display: flex; align-items: center; gap: 10px; max-width: 90%; }
+    #install-prompt button { padding: 6px 12px; font-size: 13px; background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; border: none; border-radius: 4px; cursor: pointer; }
     #install-prompt .dismiss { background: none; color: #888; padding: 4px; }
     #offline-indicator { position: absolute; top: 44px; left: 0; right: 0; z-index: 9; background: #c62828; color: white; text-align: center; padding: 6px; font-size: 13px; }
-    #share-button { position: absolute; top: 12px; right: 12px; z-index: 10; background: white; border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
-    #feedback-button { position: absolute; top: 56px; right: 12px; z-index: 10; background: white; border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
+    #share-button { position: absolute; top: 12px; right: 12px; z-index: 10; background: #fff8e1; border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
+    #feedback-button { position: absolute; top: 56px; right: 12px; z-index: 10; background: #fff8e1; border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
     #feedback-form { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
     #feedback-form .card { background: white; border-radius: 10px; padding: 24px; max-width: 360px; width: 90%; }
-    #feedback-form textarea { width: 100%; box-sizing: border-box; padding: 10px; font-size: 15px; border-radius: 6px; border: 1px solid #ccc; margin: 10px 0; font-family: inherit; resize: vertical; }
+    #feedback-form textarea { width: 100%; box-sizing: border-box; padding: 10px; font-size: 15px; border-radius: 6px; border: 1px solid #ffcc80; margin: 10px 0; font-family: inherit; resize: vertical; }
     #feedback-form button { padding: 10px 16px; font-size: 15px; border: none; border-radius: 6px; cursor: pointer; margin-right: 8px; }
-    #feedback-form .submit-btn { background: #1f6feb; color: white; }
-    #feedback-form .cancel-btn { background: #eee; color: #222; }
+    #feedback-form .submit-btn { background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; }
+    #feedback-form .cancel-btn { background: #fff3e0; color: #7a4a00; }
   `;
   document.head.appendChild(layoutStyle);
 }
@@ -241,7 +249,7 @@ function showJoinChoice(): Promise<"ride" | "watch"> {
     overlay.innerHTML = `
       <div class="card">
         <h2>Join this ${bikeTheme.eventWordSingular}</h2>
-        <button class="ride-btn" id="choice-ride">I'm ${bikeTheme.participantWord}ing</button>
+        <button class="ride-btn" id="choice-ride">I'm ${bikeTheme.participantVerbGerund}</button>
         <button class="watch-btn" id="choice-watch">Just watching</button>
       </div>
     `;
@@ -319,7 +327,7 @@ function showLocationHelp(reason: SpectatorReason | undefined): Promise<void> {
         <p>Steps for ${guidance.label}:</p>
         <ol>${guidance.steps.map((s) => `<li>${s}</li>`).join("")}</ol>
         <button id="location-help-retry">Try again</button>
-        <button id="location-help-watch" style="background:#eee;color:#222;">Just watch instead</button>
+        <button id="location-help-watch" style="background:#fff3e0;color:#7a4a00;">Just watch instead</button>
       </div>
     `;
     document.body.appendChild(overlay);

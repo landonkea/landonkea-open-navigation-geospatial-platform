@@ -1,6 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <!-- Placeholder app icon, a plain blue circle with a dot, swap this
-       for a real designed icon before this goes public. -->
-  <circle cx="50" cy="50" r="48" fill="#1f6feb" />
-  <circle cx="50" cy="50" r="14" fill="#ffffff" />
+  <!-- Placeholder app icon, a sunburst-orange gradient circle with a
+       light-yellow center dot, swap this for a real designed icon
+       before this goes public. -->
+  <defs>
+    <radialGradient id="sunburst" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffb347" />
+      <stop offset="100%" stop-color="#ff7e1f" />
+    </radialGradient>
+  </defs>
+  <circle cx="50" cy="50" r="48" fill="url(#sunburst)" />
+  <circle cx="50" cy="50" r="14" fill="#ffecb3" />
 </svg>

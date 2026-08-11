@@ -32,6 +32,13 @@ export type EventTheme = {
   eventWordSingular: string; // shown wherever the generic core says "event"
   eventWordPlural: string; // plural form of the above
   participantWord: string; // shown wherever the generic core says "participant"
+  // The "I'm ___ing" join-choice button's verb (e.g. "riding"), a
+  // separate field rather than deriving it from participantWord by
+  // appending "ing": that broke for "rider" (produced "ridering", a
+  // real bug found by actually looking at the rendered button, not
+  // every participant noun turns into its matching verb by suffix
+  // alone, English doesn't work that way generically.
+  participantVerbGerund: string;
   tags: ParticipantTag[]; // the starter list of self-select tags
   defaultUpdateIntervalSeconds: number; // how often a phone posts its location by default
   defaultMapCenter: LngLat; // where the map opens before any real ride is loaded
@@ -44,6 +51,7 @@ export const bikeTheme: EventTheme = {
   eventWordSingular: "ride", // "ride" instead of the generic "event"
   eventWordPlural: "rides", // plural of the above
   participantWord: "rider", // "rider" instead of the generic "participant"
+  participantVerbGerund: "riding", // "I'm riding", the join-choice button's verb
 
   // Starter tag list straight from the build prompt's "Optional rider
   // tags" section. A plain array, not a hardcoded enum, so an admin
