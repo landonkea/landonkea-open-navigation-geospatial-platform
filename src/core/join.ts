@@ -72,10 +72,14 @@ export type JoinResult = {
 /**
  * Joins as a spectator, deliberately, no location permission is ever
  * requested. For someone who chose "Just watching" up front.
+ *
+ * @param tag - the self-selected tag (see showTagPicker() in main.ts),
+ *   or null for none, e.g. a spectator documenting the ride can still
+ *   tag themselves "Photographer/media" without ever sharing location.
  */
-export async function joinAsSpectator(rideId: string): Promise<JoinResult> {
+export async function joinAsSpectator(rideId: string, tag: string | null = null): Promise<JoinResult> {
   const participantId = getOrCreateParticipantId(rideId);
-  const participant = await joinRide(rideId, participantId, true);
+  const participant = await joinRide(rideId, participantId, true, tag);
   return { participant, isSpectator: true };
 }
 
@@ -84,15 +88,16 @@ export async function joinAsSpectator(rideId: string): Promise<JoinResult> {
  * to spectator if that request actually fails, not by choice. For
  * someone who chose "I'm riding" up front.
  *
+ * @param tag - see joinAsSpectator()'s docs above, same meaning here.
  * @returns the join result, including which path was taken, why (if
  *   the location request failed), and the created participant row.
  */
-export async function joinAsRider(rideId: string): Promise<JoinResult> {
+export async function joinAsRider(rideId: string, tag: string | null = null): Promise<JoinResult> {
   const outcome = await requestLocationPermission(); // ask, and wait for the real answer
   const isSpectator = !outcome.granted;
 
   const participantId = getOrCreateParticipantId(rideId); // stable id for this device+ride
-  const participant = await joinRide(rideId, participantId, isSpectator); // create the row in Supabase
+  const participant = await joinRide(rideId, participantId, isSpectator, tag); // create the row in Supabase
 
   return {
     participant,

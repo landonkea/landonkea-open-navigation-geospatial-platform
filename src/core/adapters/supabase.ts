@@ -229,6 +229,11 @@ export async function fetchAllRides(limit = 50): Promise<Ride[]> {
  *   its own row on subsequent polls with no login involved.
  * @param isSpectator - true if location permission was denied/never
  *   requested, see the build prompt's rider-vs-spectator branch.
+ * @param tag - one of bikeTheme.tags' ids (e.g. "marshal"), or null
+ *   for no tag, the build prompt's "Optional rider tags" section is
+ *   explicitly self-select, this is whatever the person picked on
+ *   their own join screen (see showTagPicker() in main.ts), not
+ *   anything assigned to them by an admin.
  * @returns the participant row, either freshly created or the
  *   existing one for this device+ride.
  */
@@ -236,6 +241,7 @@ export async function joinRide(
   rideId: string,
   participantId: string,
   isSpectator: boolean,
+  tag: string | null = null,
 ): Promise<RideParticipant> {
   // upsert, not insert: participantId is stable per device+ride (see
   // participantId.ts), so a page reload mid-ride reuses the same id.
@@ -245,7 +251,7 @@ export async function joinRide(
   // of erroring.
   const { data, error } = await supabase
     .from("ride_participants")
-    .upsert({ id: participantId, ride_id: rideId, is_spectator: isSpectator }) // lat/lng start null, filled in by the first position update
+    .upsert({ id: participantId, ride_id: rideId, is_spectator: isSpectator, tag }) // lat/lng start null, filled in by the first position update
     .select() // return the row, whether it was just created or already existed
     .single(); // expect exactly one row back
 

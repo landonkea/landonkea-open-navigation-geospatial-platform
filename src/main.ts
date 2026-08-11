@@ -245,6 +245,46 @@ function showJoinChoice(): Promise<"ride" | "watch"> {
 }
 
 /**
+ * Shows the optional, self-select tag picker (build prompt's
+ * "Optional rider tags" section, e.g. "Marshal", "Sweep") right after
+ * showJoinChoice() resolves, for either path (a spectator can tag
+ * themselves "Photographer/media" without ever sharing location, see
+ * joinAsSpectator()'s docs). The tag list itself comes from
+ * bikeTheme.tags (src/theme/bike/config.ts), a different theme would
+ * show a different list with zero changes needed here.
+ *
+ * @returns a promise resolving to the chosen tag id, or null if they
+ *   pick "No tag" (the common case, this is optional).
+ */
+function showTagPicker(): Promise<string | null> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.id = "tag-picker";
+    overlay.innerHTML = `
+      <div class="card">
+        <h2>Any role for this ${bikeTheme.eventWordSingular}? (optional)</h2>
+        <button class="watch-btn" id="tag-none">No tag</button>
+        ${bikeTheme.tags
+          .map((tag) => `<button class="ride-btn" data-tag-id="${tag.id}">${tag.icon} ${tag.label}</button>`)
+          .join("")}
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    document.getElementById("tag-none")!.addEventListener("click", () => {
+      overlay.remove();
+      resolve(null);
+    });
+    overlay.querySelectorAll<HTMLButtonElement>("button[data-tag-id]").forEach((button) => {
+      button.addEventListener("click", () => {
+        overlay.remove();
+        resolve(button.dataset.tagId ?? null);
+      });
+    });
+  });
+}
+
+/**
  * Shows device-specific instructions for fixing blocked location
  * access (see core/locationHelp.ts's module docstring for the honest
  * limit here: no website can open a phone's Settings app for someone,
@@ -361,6 +401,20 @@ function setUpOfflineIndicator(): (isOnline: boolean) => void {
   };
 }
 
+/**
+ * Turns a stored tag id (e.g. "marshal") into its human-readable
+ * "icon + label" form (e.g. "🚦 Marshal") for display, looked up from
+ * bikeTheme.tags rather than shown raw. Falls back to the bare id
+ * itself for a tag id that no longer exists in the theme (e.g. an
+ * admin edits the tag list later, an old participant row still has
+ * the old id), better than showing nothing at all for a real tag
+ * someone genuinely selected.
+ */
+function tagLabel(tagId: string): string {
+  const tag = bikeTheme.tags.find((t) => t.id === tagId);
+  return tag ? `${tag.icon} ${tag.label}` : tagId;
+}
+
 function setUpRosterView(): (participants: RideParticipant[]) => void {
   let latestParticipants: RideParticipant[] = []; // remembered so opening the panel always shows current data
   let isOpen = false;
@@ -410,7 +464,7 @@ function setUpRosterView(): (participants: RideParticipant[]) => void {
         <li>
           <span class="dot ${row.status}"></span>
           <span>${row.status === "red" ? `lost signal ${row.minutesAgo} min ago` : row.status}</span>
-          ${row.p.tag ? `<span>· ${row.p.tag}</span>` : ""}
+          ${row.p.tag ? `<span>· ${tagLabel(row.p.tag)}</span>` : ""}
           ${row.stuck ? `<span class="stuck-flag">possibly stuck</span>` : ""}
         </li>
       `,
@@ -506,12 +560,13 @@ async function main(): Promise<void> {
 
   try {
     const choice = await showJoinChoice(); // the explicit up-front choice, see its docstring above
+    const tag = await showTagPicker(); // optional self-select role, see its docstring above
 
     let result: JoinResult;
     if (choice === "watch") {
-      result = await joinAsSpectator(rideId); // no location permission ever requested
+      result = await joinAsSpectator(rideId, tag); // no location permission ever requested
     } else {
-      result = await joinAsRider(rideId); // requests permission, only falls back to spectator on real failure
+      result = await joinAsRider(rideId, tag); // requests permission, only falls back to spectator on real failure
       // A real failure (not a deliberate choice) gets the detailed,
       // device-specific recovery screen instead of just a banner
       // message, then one retry attempt inline before falling back
