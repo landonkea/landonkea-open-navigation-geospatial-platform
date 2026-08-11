@@ -489,3 +489,36 @@ export async function fetchRouteForRide(rideId: string): Promise<Route | null> {
   if (error) throw new Error(`Failed to fetch route: ${error.message}`);
   return data as Route | null;
 }
+
+// ── History/export functions ────────────────────────────────────────
+
+/**
+ * Fetches every history sample recorded for a ride (see
+ * insertHistorySample() above for how these rows get written), used
+ * by the admin export feature (src/core/rideExport.ts turns this raw
+ * list into a downloadable GPX/CSV file). No pagination: a ride's
+ * total sample count is bounded by HISTORY_SAMPLE_INTERVAL_SECONDS
+ * (policy.ts) and realistic ride length, not expected to be large
+ * enough to need it.
+ *
+ * @param rideId - which ride's samples to fetch.
+ * @returns every sample for the ride, oldest and newest mixed
+ *   together across participants, the caller groups/sorts as needed
+ *   (see samplesToGpx/samplesToCsv).
+ */
+export async function fetchHistorySamples(
+  rideId: string,
+): Promise<{ participantId: string; lat: number; lng: number; recordedAt: string }[]> {
+  const { data, error } = await supabase
+    .from("ride_history_samples")
+    .select("participant_id, lat, lng, recorded_at")
+    .eq("ride_id", rideId);
+
+  if (error) throw new Error(`Failed to fetch history samples: ${error.message}`);
+  return (data ?? []).map((row) => ({
+    participantId: row.participant_id as string,
+    lat: row.lat as number,
+    lng: row.lng as number,
+    recordedAt: row.recorded_at as string,
+  }));
+}

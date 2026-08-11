@@ -6,8 +6,17 @@
 // manipulation, no framework, same as main.ts, this is a handful of
 // screens, not enough complexity to justify one.
 
-import { signInAdmin, isGrantedAdmin, createRide, createRoute, endRide, type Ride } from "./core/adapters/supabase";
+import {
+  signInAdmin,
+  isGrantedAdmin,
+  createRide,
+  createRoute,
+  endRide,
+  fetchHistorySamples,
+  type Ride,
+} from "./core/adapters/supabase";
 import { parseGpx } from "./core/gpx";
+import { samplesToCsv, samplesToGpx } from "./core/rideExport";
 import QRCode from "qrcode";
 
 const root = document.getElementById("admin-root") as HTMLDivElement; // the one mount point from admin.html
@@ -117,6 +126,7 @@ function renderCreateRide(adminUserId: string): void {
 
       renderRouteUpload(resultEl, ride.id); // let the admin optionally add a GPX route right after creating the ride
       renderEndRideButton(resultEl, ride.id); // explicit lifecycle control, build prompt's "Ride lifecycle" section
+      renderExportButtons(resultEl, ride); // build prompt's "Ride data export" section
     } catch (err) {
       errorEl.textContent = err instanceof Error ? err.message : String(err);
     }
@@ -154,6 +164,75 @@ function renderEndRideButton(container: HTMLElement, rideId: string): void {
     } catch (err) {
       errorEl.textContent = err instanceof Error ? err.message : String(err);
       button.disabled = false; // let them retry if it failed
+    }
+  });
+}
+
+/**
+ * Triggers a browser download of plain text content as a file,
+ * without ever needing a server round trip, the file exists only in
+ * the browser's memory (a Blob) and is handed straight to the user.
+ * Small and generic on purpose, both GPX and CSV exports below reuse
+ * this exact same mechanic, only the content/filename/mime type
+ * differ.
+ *
+ * @param filename - the name the downloaded file gets.
+ * @param content - the file's full text content.
+ * @param mimeType - e.g. "application/gpx+xml" or "text/csv".
+ */
+function downloadTextFile(filename: string, content: string, mimeType: string): void {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url); // release the in-memory file now that the download has started
+}
+
+/**
+ * Renders "Export as GPX" / "Export as CSV" buttons under a
+ * just-created ride. Build prompt's "Ride data export" section, pulls
+ * every recorded src/core/sync.ts history sample for this ride (see
+ * fetchHistorySamples()) and reshapes it client-side
+ * (src/core/rideExport.ts), no server/export endpoint needed. Works
+ * for a ride that's still active too (exports whatever's been
+ * recorded so far), not just an ended one.
+ *
+ * @param container - where to render the buttons.
+ * @param ride - the ride to export (needs both its id, for the query,
+ *   and its name, used as the exported file's display name/filename).
+ */
+function renderExportButtons(container: HTMLElement, ride: Ride): void {
+  const section = document.createElement("div");
+  section.innerHTML = `
+    <p style="margin-top: 20px;">Export recorded route data</p>
+    <button id="export-gpx-button" style="background: #555; margin-right: 8px;">Export GPX</button>
+    <button id="export-csv-button" style="background: #555;">Export CSV</button>
+    <p class="error" id="export-error"></p>
+  `;
+  container.appendChild(section);
+
+  const errorEl = document.getElementById("export-error") as HTMLParagraphElement;
+  const safeFileNamePart = ride.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase(); // strip anything that isn't filename-safe
+
+  const gpxButton = document.getElementById("export-gpx-button") as HTMLButtonElement;
+  gpxButton.addEventListener("click", async () => {
+    try {
+      const samples = await fetchHistorySamples(ride.id);
+      downloadTextFile(`${safeFileNamePart}.gpx`, samplesToGpx(ride.name, samples), "application/gpx+xml");
+    } catch (err) {
+      errorEl.textContent = err instanceof Error ? err.message : String(err);
+    }
+  });
+
+  const csvButton = document.getElementById("export-csv-button") as HTMLButtonElement;
+  csvButton.addEventListener("click", async () => {
+    try {
+      const samples = await fetchHistorySamples(ride.id);
+      downloadTextFile(`${safeFileNamePart}.csv`, samplesToCsv(samples), "text/csv");
+    } catch (err) {
+      errorEl.textContent = err instanceof Error ? err.message : String(err);
     }
   });
 }
