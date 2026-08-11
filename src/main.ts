@@ -5,7 +5,8 @@
 // file, see applyBaseStyles() below.
 
 import "maplibre-gl/dist/maplibre-gl.css"; // MapLibre's required stylesheet, bundled by Vite, not a CDN link
-import { createMap, setParticipantLayer, type ParticipantFeature } from "./core/map";
+import type { Map as MapLibreMap } from "maplibre-gl"; // just the type, for setUpViewSwitcher()'s parameter below
+import { createMap, setParticipantLayer, setMapView, type MapViewId, type ParticipantFeature } from "./core/map";
 import { bikeTheme } from "./theme/bike/config";
 import { joinAsRider, joinAsSpectator, retryLocationShare, type JoinResult, type SpectatorReason } from "./core/join";
 import { startPolling } from "./core/sync";
@@ -38,6 +39,9 @@ function applyBaseStyles(): void {
     #location-help ol { padding-left: 20px; }
     #location-help li { margin-bottom: 8px; }
     #location-help button { padding: 10px 16px; font-size: 15px; background: #1f6feb; color: white; border: none; border-radius: 6px; cursor: pointer; margin-top: 8px; }
+    #view-switcher { position: absolute; bottom: 12px; left: 12px; z-index: 10; background: white; border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); overflow: hidden; }
+    #view-switcher button { display: block; width: 90px; padding: 8px; font-size: 13px; border: none; background: white; cursor: pointer; }
+    #view-switcher button.active { background: #1f6feb; color: white; }
   `;
   document.head.appendChild(layoutStyle);
 }
@@ -193,6 +197,43 @@ function showLocationHelp(reason: SpectatorReason | undefined): Promise<void> {
   });
 }
 
+/**
+ * Renders the Map/Satellite view-switcher buttons and wires up the
+ * click handling. See core/map.ts's module comment for the honest
+ * limit here: true Street View (ground-level photos) isn't feasible
+ * anywhere for free, so this only offers the two views that are.
+ *
+ * @param map - the live map instance.
+ * @param getCurrentFeatures - called at switch time to get whatever
+ *   participant data should be redrawn on the new base map (MapLibre
+ *   wipes custom layers on every style change, see setMapView()'s
+ *   docstring), a function rather than a plain value so it always
+ *   reads the LATEST data at the moment someone actually clicks,
+ *   not whatever was current when the switcher was first built.
+ */
+function setUpViewSwitcher(map: MapLibreMap, getCurrentFeatures: () => ParticipantFeature[]): void {
+  const container = document.createElement("div");
+  container.id = "view-switcher";
+  container.innerHTML = `
+    <button id="view-street" class="active">Map</button>
+    <button id="view-satellite">Satellite</button>
+  `;
+  document.body.appendChild(container);
+
+  const streetButton = document.getElementById("view-street") as HTMLButtonElement;
+  const satelliteButton = document.getElementById("view-satellite") as HTMLButtonElement;
+
+  async function switchTo(view: MapViewId): Promise<void> {
+    streetButton.classList.toggle("active", view === "street"); // highlight whichever button matches the current view
+    satelliteButton.classList.toggle("active", view === "satellite");
+    await setMapView(map, view); // swap the base map, wipes custom layers as a side effect
+    setParticipantLayer(map, { type: "FeatureCollection", features: getCurrentFeatures() }); // redraw whatever was already known
+  }
+
+  streetButton.addEventListener("click", () => switchTo("street"));
+  satelliteButton.addEventListener("click", () => switchTo("satellite"));
+}
+
 async function main(): Promise<void> {
   applyBaseStyles();
   registerServiceWorker();
@@ -216,6 +257,14 @@ async function main(): Promise<void> {
   // setParticipantLayer for the first time.
   await new Promise<void>((resolve) => map.once("load", () => resolve()));
   setParticipantLayer(map, { type: "FeatureCollection", features: [] }); // empty until real data arrives
+
+  // Tracks whatever the map is currently showing, so switching views
+  // (see setUpViewSwitcher() below) can redraw the SAME data on the
+  // new base map, MapLibre wipes custom layers on every style change,
+  // there's no way to keep them across a setMapView() call, only to
+  // quickly re-add them with data already on hand.
+  let latestParticipantFeatures: ParticipantFeature[] = [];
+  setUpViewSwitcher(map, () => latestParticipantFeatures);
 
   // The URL holds either a short slug (new links, e.g. "/08112026")
   // or, for backward compatibility with any already-shared old-style
@@ -315,9 +364,10 @@ async function main(): Promise<void> {
     const onPollUpdate = (participants: RideParticipant[]) => {
       // Called after every successful poll (see sync.ts), redraw the
       // map with the freshest data.
+      latestParticipantFeatures = toParticipantFeatures(participants); // remembered for the view-switcher, see above
       setParticipantLayer(map, {
         type: "FeatureCollection",
-        features: toParticipantFeatures(participants),
+        features: latestParticipantFeatures,
       });
     };
 

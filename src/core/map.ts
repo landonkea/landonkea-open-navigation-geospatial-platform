@@ -18,6 +18,66 @@ import type { LngLat } from "../theme/bike/config"; // shared coordinate type
 // so we don't need to convert anything before handing it over.
 export type ParticipantFeature = GeoJSON.Feature<GeoJSON.Point>;
 
+// ── Map view styles ──────────────────────────────────────────────────
+// WHAT: lets someone switch between a normal street map and satellite
+// imagery. HONEST LIMIT worth stating here too (see the "street view"
+// request this responds to): true ground-level photo panoramas (like
+// Google Street View) aren't available anywhere for free, every
+// provider that offers that requires paid billing, which breaks this
+// project's $0-forever rule. These two views (street + satellite) are
+// the real, buildable options within that constraint.
+export type MapViewId = "street" | "satellite";
+
+// The normal OSM street map, same style used everywhere else in this
+// file, given a name here so the view-switcher can refer back to it.
+const STREET_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
+
+// Esri's World Imagery: free, no API key, no signup, satellite/aerial
+// photography tiles, widely used in open-source mapping projects for
+// exactly this reason. Built as a plain MapLibre style object (not a
+// style URL like the street map) since it's a single raster source,
+// no need to fetch an external style.json for something this simple.
+const SATELLITE_STYLE: maplibregl.StyleSpecification = {
+  version: 8, // MapLibre/Mapbox style spec version, 8 is the current one
+  sources: {
+    satellite: {
+      type: "raster", // photographic tiles, not vector map data
+      tiles: [
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      ],
+      tileSize: 256, // Esri's standard tile pixel size
+      attribution: "Esri, Maxar, Earthstar Geographics", // required by Esri's terms of use for this free service
+    },
+  },
+  layers: [
+    {
+      id: "satellite-layer", // this layer's internal name
+      type: "raster", // matches the source's type above
+      source: "satellite",
+    },
+  ],
+};
+
+/**
+ * Switches the map between the street and satellite views. Changing a
+ * MapLibre map's style wipes every custom source/layer that isn't
+ * part of the new style (that includes the participant clustering
+ * layer this app adds, see setParticipantLayer() below), so the
+ * caller MUST re-run setParticipantLayer() with the latest data once
+ * this resolves, this function only swaps the base map itself.
+ *
+ * @param map - the live map instance.
+ * @param view - which view to switch to.
+ * @returns a promise that resolves once the new style has fully
+ *   loaded (safe to add sources/layers again after this resolves).
+ */
+export function setMapView(map: maplibregl.Map, view: MapViewId): Promise<void> {
+  return new Promise((resolve) => {
+    map.once("styledata", () => resolve()); // fires once the new style has loaded
+    map.setStyle(view === "satellite" ? SATELLITE_STYLE : STREET_STYLE_URL);
+  });
+}
+
 /**
  * Create and mount the live map into a DOM element.
  *
@@ -55,6 +115,22 @@ export function createMap(
   // found by actually looking at the running app: top-right placement
   // put the zoom buttons directly under/behind that banner.
   map.addControl(new maplibregl.NavigationControl(), "bottom-right");
+
+  // Defensive, not a confirmed-fix for a specific reproduced bug:
+  // main.ts's applyBaseStyles() injects the CSS that gives #map its
+  // real size (position: absolute; inset: 0) via a <style> tag added
+  // moments before this function runs. If a browser ever reads the
+  // container's size before that CSS is applied and laid out,
+  // MapLibre could initialize believing the container is 0×0. Forcing
+  // a resize() here makes it re-read the container's actual current
+  // size, closing that theoretical race for free. (While debugging a
+  // separate map-never-loads symptom during testing, this call was
+  // tried as a fix and did NOT resolve it, the real cause turned out
+  // to be the testing browser tab itself being unfocused, which
+  // throttles MapLibre's render loop, not an app bug at all, see this
+  // repo's OPERATIONS.md for the full diagnosis. Left in regardless
+  // since it's a real, if rare, class of bug worth guarding against.)
+  map.resize();
 
   return map; // hand the live map instance back to the caller
 }
