@@ -1,0 +1,29 @@
+# Cloudflare Workers config, needed by the "npx wrangler deploy" step
+# Cloudflare's newer Workers-based dashboard flow uses (replacing the
+# older Pages-only git integration the original deployment used,
+# see public/_redirects for that older mechanism's equivalent rules).
+#
+# This is a plain static site (built by Vite into dist/), served here
+# as a Worker's "static assets", Cloudflare's newer name for what
+# Pages used to do, no actual server-side Worker code needed or
+# present.
+name = "landonkea-open-navigation-geospatial-platform"
+compatibility_date = "2026-08-11"
+
+[assets]
+directory = "./dist"
+
+# Any path with no real matching file (a short ride-slug link like
+# /08112026, or any future path) falls back to index.html, letting
+# src/main.ts read the real URL itself and look up the ride. Direct
+# equivalent of public/_redirects' "/* -> /index.html 200" rule.
+not_found_handling = "single-page-application"
+
+# Deliberately NOT adding any explicit rule for /admin -> /admin.html
+# here. A real, confirmed production bug (see OPERATIONS.md bug #16)
+# came from exactly that: an explicit rewrite rule fighting
+# Cloudflare's own automatic ".html stripping"/clean-URL behavior
+# (here, the default html_handling = "auto-trailing-slash"), causing
+# an infinite redirect loop. The automatic behavior already resolves
+# /admin to admin.html's content correctly on its own, verify this
+# directly after deploying rather than assuming, same lesson as before.
