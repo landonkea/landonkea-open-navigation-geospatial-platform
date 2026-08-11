@@ -121,20 +121,43 @@ export function setParticipantLayer(
   });
 
   // Individual participant dots (unclustered), colored by signal
-  // status. This is a placeholder color scheme, the real green/
-  // yellow/red-plus-shape logic (see build prompt's "Rider dot: live
-  // status color" section) lands with the live sync work, not yet
-  // built, everyone renders as the same blue dot for now.
+  // status (build prompt's "Rider dot: live status color" section).
+  // Each feature carries a "status" property, set in src/main.ts from
+  // geo.ts's signalStatus(), and this "match" expression picks the
+  // color, computed by MapLibre itself, stays fast even at 300 dots.
   map.addLayer({
-    id: "unclustered-point", // this layer's internal name
+    id: "unclustered-point",
     type: "circle",
     source: sourceId,
-    filter: ["!", ["has", "point_count"]], // only features that AREN'T a cluster
+    filter: ["!", ["has", "point_count"]],
     paint: {
-      "circle-color": "#1f6feb", // same brand blue for now
-      "circle-radius": 8, // smaller than a cluster bubble
+      "circle-color": [
+        "match",
+        ["get", "status"],
+        "green", "#2e7d32",
+        "yellow", "#f9a825",
+        "red", "#c62828",
+        "#1f6feb", // fallback if "status" is ever missing
+      ],
+      "circle-radius": 8,
       "circle-stroke-width": 2,
       "circle-stroke-color": "#ffffff",
     },
+  });
+
+  // Color alone isn't enough for colorblind riders (build prompt's
+  // "Readability" section), so a small glyph rides on top of each dot
+  // as a second, non-color status cue.
+  map.addLayer({
+    id: "unclustered-point-icon",
+    type: "symbol",
+    source: sourceId,
+    filter: ["!", ["has", "point_count"]],
+    layout: {
+      "text-field": ["match", ["get", "status"], "green", "●", "yellow", "▲", "red", "✕", "?"],
+      "text-size": 10,
+      "text-allow-overlap": true,
+    },
+    paint: { "text-color": "#ffffff" },
   });
 }

@@ -21,6 +21,9 @@
     // Lets TypeScript understand DOM types (document, navigator,
     // etc.) since this runs in a browser, not Node.js.
     "lib": ["ES2020", "DOM"],
+    // Adds typings for Vite-specific globals like import.meta.env,
+    // without this TypeScript doesn't know those exist.
+    "types": ["vite/client"],
     // Vite handles the actual bundling, TypeScript's job here is
     // just type-checking, not producing output files itself.
     "noEmit": true,

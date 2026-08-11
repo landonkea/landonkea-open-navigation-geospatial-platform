@@ -1,80 +1,130 @@
 // ── App entry point ────────────────────────────────────────────────
-// This file wires the generic core (src/core/) together with the
-// bike-specific theme (src/theme/bike/config.ts) to produce the
-// actual running app. Kept intentionally thin, it should mostly just
-// call into core/ modules, not contain real logic itself.
-//
-// Note on structure: index.html is deliberately close to empty (just
-// the required-before-JS-runs tags). Page title, theme color, and all
-// layout CSS are set here instead, in TypeScript, so there's one
-// place (not split across .html/.css/.ts files) that owns the page's
-// appearance.
+// Wires the generic core (src/core/) together with the bike theme
+// (src/theme/bike/config.ts). Page title/theme-color/layout CSS are
+// set here in TypeScript rather than hardcoded in index.html/a .css
+// file, see applyBaseStyles() below.
 
-import "maplibre-gl/dist/maplibre-gl.css"; // MapLibre's own required stylesheet, bundled by Vite (not a CDN link in index.html) so it's version-locked to the installed package and still works offline
-import { createMap, setParticipantLayer } from "./core/map"; // generic map setup
-import { bikeTheme } from "./theme/bike/config"; // bike-specific config/wording
+import "maplibre-gl/dist/maplibre-gl.css"; // MapLibre's required stylesheet, bundled by Vite, not a CDN link
+import { createMap, setParticipantLayer, type ParticipantFeature } from "./core/map";
+import { bikeTheme } from "./theme/bike/config";
+import { joinRideFlow } from "./core/join";
+import { startPolling } from "./core/sync";
+import { signalStatus } from "./core/geo";
+import type { RideParticipant } from "./core/adapters/supabase";
 
-/**
- * Sets everything about the page's appearance that would otherwise be
- * hardcoded in index.html or a separate .css file: the browser tab
- * title, the address-bar theme color, and the full-screen map layout.
- * Called once, immediately, before the map itself is created.
- */
 function applyBaseStyles(): void {
-  // The browser tab's title, previously a static <title> tag in
-  // index.html, now generated from the active theme instead.
   document.title = `${bikeTheme.eventWordSingular} live map`; // e.g. "ride live map"
 
-  // theme-color tints the browser's address bar / OS status bar on
-  // supporting browsers (mostly Android Chrome). This has to be a
-  // real <meta> tag in the DOM to work, so we create it here in code
-  // rather than hand-writing it into index.html.
-  const themeColorMeta = document.createElement("meta"); // build the tag
-  themeColorMeta.name = "theme-color"; // this attribute name is what browsers look for
-  themeColorMeta.content = "#1f6feb"; // brand blue, matches manifest.json's theme_color
-  document.head.appendChild(themeColorMeta); // insert it into the page
+  const themeColorMeta = document.createElement("meta");
+  themeColorMeta.name = "theme-color";
+  themeColorMeta.content = "#1f6feb";
+  document.head.appendChild(themeColorMeta);
 
-  // Full-screen app layout: the map should fill the entire screen,
-  // not sit inside a scrollable page the way a normal website does.
-  // Generated as one <style> tag here instead of a separate .css
-  // file, so this file is the single source of truth for layout.
-  const layoutStyle = document.createElement("style"); // build the <style> tag
+  const layoutStyle = document.createElement("style");
   layoutStyle.textContent = `
-    html, body { margin: 0; height: 100%; }
+    html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
     #map { position: absolute; inset: 0; }
-  `; // the actual CSS rules, kept minimal on purpose
-  document.head.appendChild(layoutStyle); // insert it into the page
+    #join-banner { position: absolute; top: 0; left: 0; right: 0; z-index: 10; background: #1f6feb; color: white; padding: 8px 12px; font-size: 14px; text-align: center; }
+  `;
+  document.head.appendChild(layoutStyle);
 }
 
-/**
- * Registers the service worker (see public/service-worker.js), which
- * is what makes the app shell installable and usable offline. Guarded
- * with a feature check since some older browsers don't support
- * service workers at all, the app should still just work without
- * this, not crash.
- */
 function registerServiceWorker(): void {
-  if (!("serviceWorker" in navigator)) return; // unsupported browser, silently skip
+  if (!("serviceWorker" in navigator)) return;
   window.addEventListener("load", () => {
-    // wait for full page load, the recommended time to register
-    navigator.serviceWorker.register("/service-worker.js"); // start caching the app shell
+    navigator.serviceWorker.register("/service-worker.js");
   });
 }
 
-applyBaseStyles(); // set title/theme-color/layout before anything else renders
-registerServiceWorker(); // make the app installable/offline-capable
+/**
+ * Converts raw participant rows from Supabase into the GeoJSON
+ * feature shape MapLibre's clustering expects, computing each one's
+ * live signal-status color/icon along the way (see geo.ts's
+ * signalStatus()). Participants with no position yet (just joined,
+ * no GPS fix landed yet) or spectators (who never broadcast a
+ * position at all) are left off the map entirely, not drawn as an
+ * empty/wrong dot.
+ */
+function toParticipantFeatures(participants: RideParticipant[]): ParticipantFeature[] {
+  const nowMs = Date.now(); // one shared "now" for this whole batch, not re-read per participant
+  const features: ParticipantFeature[] = [];
 
-// Create the live map, centered/zoomed per the active theme's
-// defaults (Mesa, AZ for bikeMesa), mounted into the <div id="map">
-// from index.html.
-const map = createMap("map", bikeTheme.defaultMapCenter, bikeTheme.defaultMapZoom);
+  for (const participant of participants) {
+    if (participant.lat === null || participant.lng === null) continue; // no GPS fix yet, nothing to draw
+    if (participant.is_spectator) continue; // spectators never appear as a dot, by design
 
-// Placeholder empty participant layer, wired up now so the clustering
-// setup is in place and testable, real live positions come from the
-// Supabase adapter (src/core/adapters/supabase.ts, not yet built),
-// that's the very next piece (Phase 2's polling sync).
-map.on("load", () => {
-  // "load" fires once the map's initial style/tiles are ready, adding
-  // layers any earlier would silently fail.
-  setParticipantLayer(map, { type: "FeatureCollection", features: [] }); // start with zero participants
-});
+    const lastSeenMs = new Date(participant.last_seen_at).getTime();
+    const status = signalStatus(lastSeenMs, participant.accuracy_m ?? 0, nowMs);
+
+    features.push({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [participant.lng, participant.lat] },
+      properties: { status, id: participant.id, tag: participant.tag },
+    });
+  }
+
+  return features;
+}
+
+/**
+ * Reads the ride id to join from the URL, e.g. index.html?ride=<uuid>,
+ * this is the "join link" the build prompt describes riders opening.
+ */
+function getRideIdFromUrl(): string | null {
+  return new URLSearchParams(window.location.search).get("ride");
+}
+
+async function main(): Promise<void> {
+  applyBaseStyles();
+  registerServiceWorker();
+
+  const map = createMap("map", bikeTheme.defaultMapCenter, bikeTheme.defaultMapZoom);
+  map.on("load", () => {
+    setParticipantLayer(map, { type: "FeatureCollection", features: [] }); // empty until real data arrives
+  });
+
+  const rideId = getRideIdFromUrl();
+  if (!rideId) {
+    // No ride to join, e.g. someone opened the bare app URL with no
+    // link. A real "create/find a ride" screen is future admin-side
+    // work, for now just say so plainly rather than silently doing
+    // nothing.
+    const banner = document.createElement("div");
+    banner.id = "join-banner";
+    banner.textContent = "No ride link provided, open a real ride's join link to see its live map.";
+    document.body.appendChild(banner);
+    return;
+  }
+
+  const banner = document.createElement("div");
+  banner.id = "join-banner";
+  banner.textContent = "Joining ride...";
+  document.body.appendChild(banner);
+
+  try {
+    const { participant, isSpectator } = await joinRideFlow(rideId);
+    banner.textContent = isSpectator
+      ? "Watching as a spectator, your location is not shared."
+      : "Joined, sharing your live location.";
+
+    startPolling(
+      participant.id,
+      rideId,
+      isSpectator,
+      bikeTheme.defaultUpdateIntervalSeconds,
+      (participants) => {
+        // Called after every successful poll (see sync.ts), redraw
+        // the map with the freshest data.
+        setParticipantLayer(map, {
+          type: "FeatureCollection",
+          features: toParticipantFeatures(participants),
+        });
+      },
+    );
+  } catch (err) {
+    banner.textContent = `Couldn't join this ride: ${err instanceof Error ? err.message : String(err)}`;
+    console.error(err);
+  }
+}
+
+main();

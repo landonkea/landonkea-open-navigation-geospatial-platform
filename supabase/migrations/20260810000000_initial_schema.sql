@@ -31,6 +31,29 @@
 -- explicitly say otherwise below. That's the safe default, we're
 -- opting IN to access, not opting out of it.
 
+-- ── admin_roles ─────────────────────────────────────────────────────
+-- A list, not a single "is_admin" flag, per the build prompt's "Admin
+-- accounts vs. marshals" section, so more admin sub-types can be added
+-- later (e.g. a future "read-only admin") without a schema rework.
+-- Expect roughly 10 rows total, this is a small, hand-managed table.
+-- Created before `rides` below since that table's policies reference
+-- this one, Postgres needs it to already exist first.
+create table admin_roles (
+  user_id uuid primary key references auth.users(id),
+  role text not null default 'ride_organizer',
+  granted_at timestamptz not null default now()
+);
+
+alter table admin_roles enable row level security;
+
+-- An admin can see the full admin list (needed for an "admins" list
+-- screen later), but only existing admins, not the public.
+create policy "admins can read the admin list"
+  on admin_roles for select
+  to authenticated
+  using (exists (select 1 from admin_roles where user_id = auth.uid()));
+
+
 -- ── rides ───────────────────────────────────────────────────────────
 -- One row per ride/event. `status` drives the lifecycle described in
 -- the build prompt's "Ride lifecycle" section.
@@ -61,7 +84,7 @@ create policy "anyone can read a ride they have the id for"
   on rides for select
   using (true);
 
--- Only a logged-in admin (see admin_roles below) can create a ride.
+-- Only a logged-in admin can create a ride.
 create policy "admins can create rides"
   on rides for insert
   to authenticated
@@ -72,27 +95,6 @@ create policy "admins can create rides"
 -- person isn't a bottleneck).
 create policy "any admin can update any ride"
   on rides for update
-  to authenticated
-  using (exists (select 1 from admin_roles where user_id = auth.uid()));
-
-
--- ── admin_roles ─────────────────────────────────────────────────────
--- A list, not a single "is_admin" flag, per the build prompt's "Admin
--- accounts vs. marshals" section, so more admin sub-types can be added
--- later (e.g. a future "read-only admin") without a schema rework.
--- Expect roughly 10 rows total, this is a small, hand-managed table.
-create table admin_roles (
-  user_id uuid primary key references auth.users(id),
-  role text not null default 'ride_organizer',
-  granted_at timestamptz not null default now()
-);
-
-alter table admin_roles enable row level security;
-
--- An admin can see the full admin list (needed for an "admins" list
--- screen later), but only existing admins, not the public.
-create policy "admins can read the admin list"
-  on admin_roles for select
   to authenticated
   using (exists (select 1 from admin_roles where user_id = auth.uid()));
 
@@ -198,3 +200,23 @@ alter table ride_history_samples enable row level security;
 create policy "anyone can read history of a ride they have the id for"
   on ride_history_samples for select
   using (true);
+
+-- ── Table-level grants ──────────────────────────────────────────────
+-- RLS policies above only filter WHICH rows a role can see/change,
+-- Postgres separately requires the role to have base table privileges
+-- at all before RLS is even evaluated, without these grants every
+-- request gets a flat "permission denied for table ..." regardless of
+-- how permissive the RLS policies are. `anon` is unauthenticated
+-- requests (regular riders/spectators, who never log in), `authenticated`
+-- is a real logged-in admin session.
+grant select on admin_roles to authenticated;
+
+grant select on rides to anon, authenticated;
+grant insert, update on rides to authenticated;
+
+grant select, insert, update on ride_participants to anon, authenticated;
+
+grant select on routes to anon, authenticated;
+grant insert on routes to authenticated;
+
+grant select on ride_history_samples to anon, authenticated;
