@@ -260,6 +260,21 @@ export async function joinRide(
 }
 
 /**
+ * Removes a participant's own row entirely, for an explicit "Leave
+ * Ride" action (see setUpLeaveRideButton() in main.ts), rather than
+ * leaving a stale dot on the map for everyone else until the post-
+ * ride retention job eventually cleans it up. The caller is
+ * responsible for also stopping the poll loop and releasing the wake
+ * lock, this function only removes the database row.
+ *
+ * @param participantId - this device's own participant id.
+ */
+export async function leaveRide(participantId: string): Promise<void> {
+  const { error } = await supabase.from("ride_participants").delete().eq("id", participantId);
+  if (error) throw new Error(`Failed to leave ride: ${error.message}`);
+}
+
+/**
  * Updates a participant's own position, called on every poll interval
  * for anyone who isn't a spectator (see the build prompt's "Critical
  * architecture decision: polling, not persistent realtime

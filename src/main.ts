@@ -12,12 +12,13 @@ import { joinAsRider, joinAsSpectator, retryLocationShare, type JoinResult, type
 import { startPolling } from "./core/sync";
 import { signalStatus, type SignalStatus } from "./core/geo";
 import { detectLocationGuidance } from "./core/locationHelp";
-import { keepWakeLockAlive } from "./core/wakeLock";
+import { keepWakeLockAlive, releaseWakeLock } from "./core/wakeLock";
 import { isPossiblyStuck } from "./core/stuckDetection";
 import {
   fetchRide,
   fetchRideBySlug,
   fetchRouteForRide,
+  leaveRide,
   submitFeedback,
   type RideParticipant,
 } from "./core/adapters/supabase";
@@ -76,6 +77,7 @@ function applyBaseStyles(): void {
     #offline-indicator { position: absolute; top: 44px; left: 0; right: 0; z-index: 9; background: #c62828; color: white; text-align: center; padding: 6px; font-size: 13px; }
     #share-button { position: absolute; top: 12px; right: 12px; z-index: 10; background: #fff8e1; border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
     #feedback-button { position: absolute; top: 56px; right: 12px; z-index: 10; background: #fff8e1; border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
+    #leave-ride-button { position: absolute; top: 100px; right: 12px; z-index: 10; background: #fff8e1; border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
     #feedback-form { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
     #feedback-form .card { background: white; border-radius: 10px; padding: 24px; max-width: 360px; width: 90%; }
     #feedback-form textarea { width: 100%; box-sizing: border-box; padding: 10px; font-size: 15px; border-radius: 6px; border: 1px solid #ffcc80; margin: 10px 0; font-family: inherit; resize: vertical; }
@@ -527,6 +529,39 @@ function setUpFeedbackButton(rideId: string): void {
   });
 }
 
+/**
+ * Renders a "Leave Ride" button. Deliberately generic/small: it only
+ * handles the button itself (click, disabled/loading state, removing
+ * itself once done), the actual leaving logic (stop polling, release
+ * the wake lock, delete the participant row, update the banner) is
+ * the caller's job, passed in as `onLeave`, since main() is the only
+ * place that actually has `stopPolling`/`participant`/`banner` in
+ * scope.
+ *
+ * @param onLeave - called on click, should do the real work of
+ *   leaving and throw if it fails (the button re-enables itself then,
+ *   letting someone retry rather than being stuck).
+ */
+function setUpLeaveRideButton(onLeave: () => Promise<void>): void {
+  const button = document.createElement("button");
+  button.id = "leave-ride-button";
+  button.textContent = "Leave Ride";
+  document.body.appendChild(button);
+
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    button.textContent = "Leaving...";
+    try {
+      await onLeave();
+      button.remove(); // done, nothing left for this button to do
+    } catch (err) {
+      console.error("Failed to leave ride:", err);
+      button.disabled = false;
+      button.textContent = "Leave Ride";
+    }
+  });
+}
+
 function setUpRosterView(): (participants: RideParticipant[]) => void {
   let latestParticipants: RideParticipant[] = []; // remembered so opening the panel always shows current data
   let isOpen = false;
@@ -791,6 +826,14 @@ async function main(): Promise<void> {
       updateOfflineIndicator,
       onRideEnded,
     );
+
+    setUpLeaveRideButton(async () => {
+      stopPolling(); // whatever the current poll loop is, a retry may have replaced it
+      await releaseWakeLock();
+      await leaveRide(participant.id); // removes the row entirely, not just stops updating it
+      banner.innerHTML = "";
+      banner.append("You've left this ride.");
+    });
   } catch (err) {
     banner.textContent = `Couldn't join this ride: ${err instanceof Error ? err.message : String(err)}`;
     console.error(err);
