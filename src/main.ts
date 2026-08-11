@@ -97,7 +97,11 @@ function applyBaseStyles(): void {
 function registerServiceWorker(): void {
   if (!("serviceWorker" in navigator)) return;
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/service-worker.js");
+    // BASE_URL is "/" on Cloudflare (domain root) but "/repo-name/" on
+    // GitHub Pages (subpath-hosted), Vite sets it from the --base build
+    // flag. A hardcoded "/service-worker.js" 404s on GitHub Pages since
+    // the file actually lives under the repo-name prefix there.
+    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}service-worker.js`);
   });
 }
 

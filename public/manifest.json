@@ -2,13 +2,13 @@
   "name": "Open Navigation & Geospatial Platform",
   "short_name": "OpenNav",
   "description": "See everyone's live location on a shared map during a group event.",
-  "start_url": "/",
+  "start_url": ".",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#ff7e1f",
   "icons": [
     {
-      "src": "/icons/icon-placeholder.svg",
+      "src": "icons/icon-placeholder.svg",
       "sizes": "any",
       "type": "image/svg+xml"
     }
