@@ -42,7 +42,7 @@ function applyBaseStyles(): void {
   // of the brand restyle.
   const style = document.createElement("style");
   style.textContent = `
-    body { margin: 0; font-family: system-ui, sans-serif; background: linear-gradient(135deg, #fff3e0, #ffe0b2); min-height: 100vh; }
+    body { margin: 0; font-family: system-ui, sans-serif; background: linear-gradient(135deg, #ffcc80, #ff9800); min-height: 100vh; }
     #admin-root { max-width: 420px; margin: 40px auto; padding: 24px; background: white; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
     input, select { display: block; width: 100%; box-sizing: border-box; padding: 8px; margin: 6px 0 14px; font-size: 16px; }
     button { padding: 10px 16px; font-size: 16px; background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; border: none; border-radius: 4px; cursor: pointer; }
@@ -271,7 +271,6 @@ function buildRideListItem(ride: Ride): HTMLElement {
 
   const gpxButton = document.createElement("button");
   gpxButton.textContent = "Export GPX";
-  gpxButton.style.background = "#8d6e63";
   gpxButton.addEventListener("click", async () => {
     try {
       const samples = await fetchHistorySamples(ride.id);
@@ -284,7 +283,6 @@ function buildRideListItem(ride: Ride): HTMLElement {
 
   const csvButton = document.createElement("button");
   csvButton.textContent = "Export CSV";
-  csvButton.style.background = "#8d6e63";
   csvButton.addEventListener("click", async () => {
     try {
       const samples = await fetchHistorySamples(ride.id);
@@ -297,7 +295,6 @@ function buildRideListItem(ride: Ride): HTMLElement {
 
   const participantsButton = document.createElement("button");
   participantsButton.textContent = "Manage participants";
-  participantsButton.style.background = "#8d6e63";
   actions.appendChild(participantsButton);
 
   // Lazily loaded: no point fetching every ride's participants up
@@ -336,7 +333,6 @@ function buildRideListItem(ride: Ride): HTMLElement {
 
   const feedbackButton = document.createElement("button");
   feedbackButton.textContent = "View Feedback";
-  feedbackButton.style.background = "#8d6e63";
   actions.appendChild(feedbackButton);
 
   // Same lazy load-once-then-toggle pattern as participants above.
@@ -540,8 +536,8 @@ function renderExportButtons(container: HTMLElement, ride: Ride): void {
   const section = document.createElement("div");
   section.innerHTML = `
     <p style="margin-top: 20px;">Export recorded route data</p>
-    <button id="export-gpx-button" style="background: #8d6e63; margin-right: 8px;">Export GPX</button>
-    <button id="export-csv-button" style="background: #8d6e63;">Export CSV</button>
+    <button id="export-gpx-button" >Export GPX</button>
+    <button id="export-csv-button" >Export CSV</button>
     <p class="error" id="export-error"></p>
   `;
   container.appendChild(section);
@@ -636,8 +632,8 @@ function renderRouteDrawer(container: HTMLElement, rideId: string): void {
     <p style="margin-top: 20px;">Or draw a route: click the map to add points</p>
     <div id="route-draw-map" style="position: relative; width: 100%; height: 300px; overflow: hidden; border-radius: 4px;"></div>
     <div style="display: flex; gap: 8px; margin-top: 8px;">
-      <button type="button" id="route-draw-undo" style="background: #8d6e63;">Undo last point</button>
-      <button type="button" id="route-draw-clear" style="background: #8d6e63;">Clear</button>
+      <button type="button" id="route-draw-undo" >Undo last point</button>
+      <button type="button" id="route-draw-clear" >Clear</button>
       <button type="button" id="route-draw-save">Save drawn route</button>
     </div>
     <p class="error" id="route-draw-error"></p>

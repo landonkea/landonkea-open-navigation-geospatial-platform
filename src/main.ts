@@ -43,7 +43,7 @@ function applyBaseStyles(): void {
   layoutStyle.textContent = `
     html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
     #map { position: absolute; inset: 0; }
-    #join-banner { position: absolute; top: 0; left: 0; right: 0; z-index: 10; background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; padding: 8px 12px; font-size: 14px; text-align: center; }
+    #join-banner { position: absolute; top: 0; left: 0; right: 0; z-index: 5; background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; padding: 8px 12px; font-size: 14px; text-align: center; }
     #join-banner button { margin-left: 10px; padding: 4px 10px; font-size: 13px; background: #fff8e1; color: #ff7e1f; border: none; border-radius: 4px; cursor: pointer; }
     #join-choice { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
     #join-choice .card { background: white; border-radius: 10px; padding: 28px; max-width: 360px; text-align: center; }
@@ -51,6 +51,12 @@ function applyBaseStyles(): void {
     #join-choice button { display: block; width: 100%; padding: 14px; margin: 8px 0; font-size: 16px; border-radius: 6px; border: none; cursor: pointer; }
     #join-choice .ride-btn { background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; }
     #join-choice .watch-btn { background: #fff3e0; color: #7a4a00; }
+    #tag-picker { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
+    #tag-picker .card { background: white; border-radius: 10px; padding: 28px; max-width: 360px; width: 90%; max-height: 80vh; overflow-y: auto; text-align: center; }
+    #tag-picker h2 { margin-top: 0; }
+    #tag-picker button { display: block; width: 100%; padding: 14px; margin: 8px 0; font-size: 16px; border-radius: 6px; border: none; cursor: pointer; }
+    #tag-picker .ride-btn { background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; }
+    #tag-picker .watch-btn { background: #fff3e0; color: #7a4a00; }
     #location-help { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
     #location-help .card { background: white; border-radius: 10px; padding: 24px; max-width: 380px; }
     #location-help ol { padding-left: 20px; }
