@@ -4,9 +4,17 @@
 # over these rules automatically, no rule needed for those).
 
 # /admin already works via Cloudflare's automatic "strip .html"
-# behavior, this line just makes it explicit/guaranteed rather than
-# relying only on that automatic behavior.
-/admin   /admin.html   200
+# behavior alone, no rule needed here for it. A real, confirmed
+# production bug (found by directly curling the live site, not by
+# browser testing, which had only ever hit localhost until now): an
+# explicit rule here that rewrites /admin -> /admin.html actively
+# FIGHTS that same automatic behavior, Cloudflare's own platform-level
+# ".html stripping" redirect intercepts the rewrite's internal fetch
+# of /admin.html and 308s it right back to /admin, which re-triggers
+# this rule again, forever, an infinite redirect loop
+# (ERR_TOO_MANY_REDIRECTS in a real browser). Do not re-add a rule
+# here for /admin, the automatic behavior already covers it correctly
+# on its own.
 
 # Everything else (a short ride slug like /08112026, or any future
 # path) serves index.html instead of a 404, letting src/main.ts read
