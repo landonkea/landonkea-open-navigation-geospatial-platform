@@ -481,18 +481,30 @@ export type Route = {
 };
 
 /**
- * Saves a route (the route line plus any waypoints, already parsed
- * into GeoJSON by src/core/gpx.ts) for a ride. Admin-only, matches
- * the "admins can create routes" RLS policy.
+ * Saves a route (the route line plus any waypoints) for a ride.
+ * Admin-only, matches the "admins can create routes" RLS policy. The
+ * schema's `source` column just labels how the route was produced
+ * (`routes_source_check` constrains it to "gpx"/"drawn"/"none"), it
+ * doesn't change how the route is stored or rendered, both GPX upload
+ * (src/core/gpx.ts) and hand-drawing (renderRouteDrawer() in
+ * admin.ts) end up as the exact same GeoJSON shape and go through
+ * this one function.
  *
  * @param rideId - which ride this route belongs to.
- * @param geojson - the parsed GeoJSON FeatureCollection (see gpx.ts).
+ * @param geojson - the route as GeoJSON (parsed from a GPX file, or
+ *   built point-by-point from map clicks).
+ * @param source - how this route was produced, defaults to "gpx"
+ *   since that was this function's only caller until drawing existed.
  * @returns the newly created route row.
  */
-export async function createRoute(rideId: string, geojson: GeoJSON.FeatureCollection): Promise<Route> {
+export async function createRoute(
+  rideId: string,
+  geojson: GeoJSON.FeatureCollection,
+  source: "gpx" | "drawn" = "gpx",
+): Promise<Route> {
   const { data, error } = await supabase
     .from("routes")
-    .insert({ ride_id: rideId, source: "gpx", geojson })
+    .insert({ ride_id: rideId, source, geojson })
     .select()
     .single();
 

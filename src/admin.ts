@@ -17,7 +17,9 @@ import {
   type Ride,
 } from "./core/adapters/supabase";
 import { parseGpx } from "./core/gpx";
+import { createMap, setRouteLayer } from "./core/map";
 import { samplesToCsv, samplesToGpx } from "./core/rideExport";
+import { bikeTheme } from "./theme/bike/config";
 import QRCode from "qrcode";
 
 const root = document.getElementById("admin-root") as HTMLDivElement; // the one mount point from admin.html
@@ -151,6 +153,7 @@ function renderCreateRide(adminUserId: string): void {
       nameInput.value = ""; // clear the field so creating another ride starts fresh
 
       renderRouteUpload(resultEl, ride.id); // let the admin optionally add a GPX route right after creating the ride
+      renderRouteDrawer(resultEl, ride.id); // alternative to GPX upload: click-to-draw a route directly on the map
       renderEndRideButton(resultEl, ride.id); // explicit lifecycle control, build prompt's "Ride lifecycle" section
       renderExportButtons(resultEl, ride); // build prompt's "Ride data export" section
       loadAndRenderRideList(rideListContainer); // refresh so the just-created ride shows up in the list below immediately
@@ -406,9 +409,139 @@ function renderRouteUpload(container: HTMLElement, rideId: string): void {
     try {
       const text = await file.text(); // read the uploaded file's raw contents
       const geojson = parseGpx(text); // throws a plain-language error on a genuinely malformed file, see gpx.ts
-      await createRoute(rideId, geojson); // saves it, the rider-facing map fetches this automatically (see main.ts)
+      await createRoute(rideId, geojson, "gpx"); // saves it, the rider-facing map fetches this automatically (see main.ts)
       const waypointCount = geojson.features.filter((f) => f.properties?.kind === "waypoint").length;
       successEl.textContent = `Route saved${waypointCount > 0 ? ` (${waypointCount} waypoint${waypointCount === 1 ? "" : "s"})` : ""}.`;
+    } catch (err) {
+      errorEl.textContent = err instanceof Error ? err.message : String(err);
+    }
+  });
+}
+
+/**
+ * Renders a "draw your own route" control under a just-created ride,
+ * an alternative to GPX upload (renderRouteUpload() above) for a ride
+ * with no existing GPX file to upload, e.g. sketching a route
+ * directly from local knowledge of the roads/trails. Reuses the exact
+ * same rider-facing map building blocks (core/map.ts) so what the
+ * admin sees while drawing looks the same as what riders will
+ * eventually see.
+ *
+ * Each click on the map adds one point; the line and small preview
+ * dots redraw live after every click (setRouteLayer() already
+ * supports being called repeatedly, see its docs), a separate
+ * "Save drawn route" step then persists it, so an admin can freely
+ * undo/clear/re-click before committing to anything.
+ *
+ * @param container - where to render the control.
+ * @param rideId - which ride this route belongs to.
+ */
+function renderRouteDrawer(container: HTMLElement, rideId: string): void {
+  const section = document.createElement("div");
+  section.innerHTML = `
+    <p style="margin-top: 20px;">Or draw a route: click the map to add points</p>
+    <div id="route-draw-map" style="position: relative; width: 100%; height: 300px; overflow: hidden; border-radius: 4px;"></div>
+    <div style="display: flex; gap: 8px; margin-top: 8px;">
+      <button type="button" id="route-draw-undo" style="background: #555;">Undo last point</button>
+      <button type="button" id="route-draw-clear" style="background: #555;">Clear</button>
+      <button type="button" id="route-draw-save">Save drawn route</button>
+    </div>
+    <p class="error" id="route-draw-error"></p>
+    <p id="route-draw-success" style="color: #2e7d32;"></p>
+  `;
+  container.appendChild(section);
+
+  const errorEl = document.getElementById("route-draw-error") as HTMLParagraphElement;
+  const successEl = document.getElementById("route-draw-success") as HTMLParagraphElement;
+
+  // Every clicked point, in click order, the only state this control
+  // needs to track, everything drawn on the map is rebuilt from this
+  // array on every change rather than mutated in place.
+  let points: { lat: number; lng: number }[] = [];
+
+  const map = createMap("route-draw-map", bikeTheme.defaultMapCenter, bikeTheme.defaultMapZoom);
+
+  /**
+   * Rebuilds and redraws the live preview from the current `points`
+   * array: the connecting line (needs at least 2 points to exist at
+   * all) plus a small dot at every clicked point so a single click
+   * still gives visible feedback before a second point makes a line
+   * possible. Reuses the "waypoint" style purely for this visual
+   * feedback, these dots are NOT saved as real named waypoints, see
+   * buildFinalRouteGeoJson() below for what actually gets saved.
+   */
+  function redrawPreview(): void {
+    const features: GeoJSON.Feature[] = points.map((p) => ({
+      type: "Feature",
+      properties: { kind: "waypoint", name: null },
+      geometry: { type: "Point", coordinates: [p.lng, p.lat] },
+    }));
+    if (points.length >= 2) {
+      features.push({
+        type: "Feature",
+        properties: { kind: "route" },
+        geometry: { type: "LineString", coordinates: points.map((p) => [p.lng, p.lat]) },
+      });
+    }
+    setRouteLayer(map, { type: "FeatureCollection", features });
+  }
+
+  /** Builds the GeoJSON that actually gets saved: the line only, no per-click dots. */
+  function buildFinalRouteGeoJson(): GeoJSON.FeatureCollection {
+    return {
+      type: "FeatureCollection",
+      features:
+        points.length >= 2
+          ? [
+              {
+                type: "Feature",
+                properties: { kind: "route" },
+                geometry: { type: "LineString", coordinates: points.map((p) => [p.lng, p.lat]) },
+              },
+            ]
+          : [],
+    };
+  }
+
+  // Same real race condition already found and fixed in main.ts:
+  // addSource()/addLayer() (inside setRouteLayer(), called from the
+  // click handler below) only work once the map's style has actually
+  // finished loading, so clicks are ignored until then rather than
+  // risking that same silent failure here too.
+  let mapReady = false;
+  map.once("load", () => {
+    mapReady = true;
+  });
+
+  map.on("click", (event) => {
+    if (!mapReady) return;
+    points.push({ lat: event.lngLat.lat, lng: event.lngLat.lng });
+    redrawPreview();
+  });
+
+  const undoButton = document.getElementById("route-draw-undo") as HTMLButtonElement;
+  undoButton.addEventListener("click", () => {
+    points.pop();
+    redrawPreview();
+  });
+
+  const clearButton = document.getElementById("route-draw-clear") as HTMLButtonElement;
+  clearButton.addEventListener("click", () => {
+    points = [];
+    redrawPreview();
+  });
+
+  const saveButton = document.getElementById("route-draw-save") as HTMLButtonElement;
+  saveButton.addEventListener("click", async () => {
+    errorEl.textContent = "";
+    successEl.textContent = "";
+    if (points.length < 2) {
+      errorEl.textContent = "Click at least 2 points on the map to form a route line.";
+      return;
+    }
+    try {
+      await createRoute(rideId, buildFinalRouteGeoJson(), "drawn");
+      successEl.textContent = "Drawn route saved.";
     } catch (err) {
       errorEl.textContent = err instanceof Error ? err.message : String(err);
     }
