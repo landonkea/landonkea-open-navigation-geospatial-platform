@@ -18,11 +18,11 @@
  * Placeholder value, change this single number to retune it, nothing
  * else needs to change.
  *
- * Not wired into real disconnect/deletion logic yet, that's a
- * not-yet-built piece (see workingTitle-BUILD-PROMPT.md's Data
- * Retention and Ride Lifecycle sections), this constant exists now so
- * that logic, when built, reads from here instead of a hardcoded
- * number.
+ * Used by the scheduled retention-cleanup job
+ * (.github/workflows/data-retention.yml) as its cutoff for deleting
+ * `ride_participants` rows. That workflow can't import a TypeScript
+ * file, so its own `RETENTION_MINUTES` is a hand-kept copy of this
+ * number, if you change this, update that workflow's copy too.
  */
 export const POST_RIDE_DISCONNECT_MINUTES = 20;
 
@@ -55,3 +55,16 @@ export const STUCK_DETECTION_WINDOW_MINUTES = 15;
  * its own) so standing still doesn't falsely register as movement.
  */
 export const STUCK_DETECTION_MAX_DISTANCE_METERS = 30;
+
+/**
+ * How often (in seconds) a rider's position gets persisted into
+ * `ride_history_samples` for later export (GPX/CSV), deliberately
+ * decoupled from the live poll interval, which can be much shorter
+ * (e.g. every 5-15s). Sampling on every single live poll would grow
+ * storage fast at real scale (hundreds of riders over a multi-hour
+ * ride), sampling on a slower fixed cadence instead keeps a ride's
+ * full route shape while bounding row count. Tune this number if
+ * exported routes look too coarse or storage grows faster than
+ * expected.
+ */
+export const HISTORY_SAMPLE_INTERVAL_SECONDS = 60;

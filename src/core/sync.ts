@@ -9,6 +9,7 @@
 import {
   fetchParticipants,
   fetchRideStatus,
+  insertHistorySample,
   updateParticipantPosition,
   type RideParticipant,
   type RideStatus,
@@ -16,12 +17,19 @@ import {
 import { distanceMeters, headingDegrees, type GpsPoint } from "./geo";
 import { countsAsMovement } from "./stuckDetection";
 import { watchOnlineStatus, type OnlineStatusCallback } from "./offlineBuffer";
+import { HISTORY_SAMPLE_INTERVAL_SECONDS } from "./policy";
 
 // The last GPS reading this device took, kept between polls so
 // headingDegrees()/speedMetersPerSecond() have a previous point to
 // compare the newest one against. Null until the first real reading
 // arrives.
 let previousPoint: GpsPoint | null = null;
+
+// When this device last wrote a row into ride_history_samples, kept
+// separately from previousPoint above (which updates every poll) so
+// sampling can run on its own, slower cadence, see
+// HISTORY_SAMPLE_INTERVAL_SECONDS's docs in policy.ts for why.
+let lastHistorySampleAtMs: number | null = null;
 
 // Never wait longer than this between retries, even after many
 // consecutive failures, a real cap on how degraded things get.
@@ -131,6 +139,31 @@ export async function pollOnce(
       );
 
       previousPoint = currentPoint; // remember this reading for next poll's heading/speed calculation
+
+      // Fallback-free, best-effort: a slower-cadence write into
+      // ride_history_samples for later export, separate from the
+      // "current position" write above. Throttled to
+      // HISTORY_SAMPLE_INTERVAL_SECONDS, not every poll, see that
+      // constant's docs in policy.ts for why.
+      const dueForSample =
+        lastHistorySampleAtMs === null ||
+        currentPoint.timestampMs - lastHistorySampleAtMs >= HISTORY_SAMPLE_INTERVAL_SECONDS * 1000;
+      if (dueForSample) {
+        try {
+          await insertHistorySample(
+            rideId,
+            participantId,
+            currentPoint.lat,
+            currentPoint.lng,
+            new Date(currentPoint.timestampMs).toISOString(),
+          );
+          lastHistorySampleAtMs = currentPoint.timestampMs;
+        } catch (err) {
+          // Missing one history sample shouldn't disrupt live
+          // tracking at all, log and let the next due poll try again.
+          console.error("History sample write failed, will retry when next due:", err);
+        }
+      }
     } catch (err) {
       // A single failed GPS read or network request shouldn't crash
       // the whole app, log it and move on, the next poll interval

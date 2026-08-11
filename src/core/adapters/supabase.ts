@@ -277,6 +277,42 @@ export async function updateParticipantPosition(
 }
 
 /**
+ * Persists one point into `ride_history_samples`, the append-only log
+ * a ride's route gets exported from later (GPX/CSV, not built yet).
+ * Deliberately separate from updateParticipantPosition above, which
+ * overwrites a single "current position" row every poll, this instead
+ * inserts a new row every call, building up a full trail over time.
+ * The caller (src/core/sync.ts) throttles how often it actually calls
+ * this to HISTORY_SAMPLE_INTERVAL_SECONDS (see policy.ts), not every
+ * single live poll, to keep row count bounded at real scale.
+ *
+ * @param rideId - which ride this sample belongs to.
+ * @param participantId - which participant this sample belongs to.
+ * @param lat - latitude at the moment sampled.
+ * @param lng - longitude at the moment sampled.
+ * @param recordedAtIso - when this position was actually read on the
+ *   device (not "now", the device's own GPS timestamp), so exported
+ *   routes reflect real timing even if the insert itself lands late.
+ */
+export async function insertHistorySample(
+  rideId: string,
+  participantId: string,
+  lat: number,
+  lng: number,
+  recordedAtIso: string,
+): Promise<void> {
+  const { error } = await supabase.from("ride_history_samples").insert({
+    ride_id: rideId,
+    participant_id: participantId,
+    lat,
+    lng,
+    recorded_at: recordedAtIso,
+  });
+
+  if (error) throw new Error(`Failed to record history sample: ${error.message}`);
+}
+
+/**
  * Fetches every current participant in a ride, riders, spectators,
  * and tagged roles alike (the caller decides how to render each,
  * e.g. spectators never get drawn as a map dot). This is the other
