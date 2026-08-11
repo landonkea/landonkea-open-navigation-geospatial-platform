@@ -1,0 +1,13 @@
+# Separate Worker config for the staging environment, a distinct
+# deployment target from wrangler.toml's (which is the "development"
+# environment's config, see OPERATIONS.md's "Decisions made" section
+# for the dev/staging/production split). Kept as its own file rather
+# than a [env.staging] section in wrangler.toml so each environment's
+# deploy step can point at a clearly separate, unambiguous config file
+# by name.
+name = "landonkea-open-navigation-geospatial-platform-staging"
+compatibility_date = "2026-08-11"
+
+[assets]
+directory = "./dist"
+not_found_handling = "single-page-application"

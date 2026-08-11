@@ -1,0 +1,68 @@
+# ── Staging deployment: Cloudflare Workers, via GitHub Actions ──────
+# WHAT: builds and deploys the staging environment (a separate
+# Cloudflare Worker + a separate, fully isolated Supabase project,
+# see OPERATIONS.md's "Decisions made" section for the dev/staging/
+# production split) on every push to the `staging` branch.
+#
+# WHY GitHub Actions runs this instead of Cloudflare's own built-in
+# Workers Builds pipeline: that pipeline failed 3 times in a row
+# during a real attempt (the build itself always succeeded, the asset
+# upload step cut off with no error message each time, looked like a
+# real platform-side issue). GitHub Actions running `wrangler deploy`
+# directly has been completely reliable all along (same tool this
+# whole project's other automation already uses), so it replaces
+# Cloudflare's own CI here rather than fighting an unreliable one.
+name: Deploy staging (Cloudflare Worker)
+
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch: # also allow manually re-running from the Actions tab
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run type-check
+
+      # Staging's own, fully separate Supabase project, real data
+      # isolation from both local dev and production, see
+      # OPERATIONS.md's "Supabase (staging)" notes.
+      - name: Build with staging's Supabase credentials
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+        run: npx vite build
+
+      # public/_redirects gets copied into dist/ automatically (it's a
+      # plain static file in public/), but it's specifically a Pages-
+      # era mechanism, Cloudflare's newer Workers static-assets system
+      # validates it independently and REJECTS deploys over it (found
+      # the hard way: "Invalid _redirects configuration ... Infinite
+      # loop detected", the exact same underlying footgun as the
+      # earlier production /admin redirect-loop bug, see OPERATIONS.md
+      # bug #16, just caught upfront here instead of at runtime).
+      # not_found_handling in wrangler.staging.toml already covers the
+      # same "unmatched path falls back to index.html" behavior
+      # natively, so this file is redundant for a Worker deploy, not
+      # just unwanted.
+      - name: Remove the Pages-era _redirects file (Workers doesn't need or want it)
+        run: rm -f dist/_redirects
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          command: deploy --config wrangler.staging.toml
