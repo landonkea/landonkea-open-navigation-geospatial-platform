@@ -3,3 +3,7 @@ dist/
 .env
 .env.local
 .DS_Store
+
+# Local-only running ops log, not meant for GitHub until explicitly
+# decided later (see the file itself), keep this ignored until then.
+OPERATIONS.md
