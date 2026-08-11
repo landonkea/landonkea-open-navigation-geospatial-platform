@@ -97,7 +97,13 @@ export async function deleteTestAdminUser(userId: string): Promise<void> {
  */
 export function seedActiveRide(name: string, createdByUserId: string): { rideId: string; slug: string } {
   const rideId = randomUUID();
-  const slug = `e2e${Date.now()}`; // unique per run, avoids colliding with a real same-day ride's slug
+  // Date.now() alone isn't unique enough: a test that seeds two rides
+  // back-to-back (see multi-ride-isolation.spec.ts) can call this
+  // twice within the same millisecond on a fast CI runner, a real
+  // collision confirmed on a real CI run ("duplicate key value
+  // violates unique constraint rides_slug_key"). A short random
+  // suffix makes that practically impossible regardless of timing.
+  const slug = `e2e${Date.now()}${randomUUID().slice(0, 8)}`;
   runSql(
     `insert into rides (id, name, status, created_by, slug, started_at)
      values (${sqlLiteral(rideId)}, ${sqlLiteral(name)}, 'active', ${sqlLiteral(createdByUserId)}, ${sqlLiteral(slug)}, now());`,
