@@ -46,6 +46,16 @@ jobs:
       # Cloudflare's own build (run separately, on Cloudflare's own
       # infrastructure) still uses the plain root-relative build.
       - name: Build with the correct base path for GitHub Pages
+        env:
+          # Real Supabase credentials, set as GitHub Actions repo
+          # secrets (gh secret set), same values Cloudflare's build
+          # gets, so this redundant host actually works, not just
+          # serves a shell that can't reach the database. The
+          # publishable/anon key is meant to be public (safe inside a
+          # built browser bundle either way), it's stored as a secret
+          # here purely so it's not hardcoded in this file.
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: npx vite build --base=/${{ github.event.repository.name }}/
 
       # GitHub Pages has no server-side rewrite support (unlike
