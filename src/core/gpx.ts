@@ -83,3 +83,40 @@ export function parseGpx(gpxText: string): GeoJSON.FeatureCollection {
 
   return { type: "FeatureCollection", features };
 }
+
+/**
+ * Parses a GPX file's track points into plain {lat, lng, recordedAt}
+ * samples, for importing as ride history (see importHistorySamples()
+ * in src/core/adapters/supabase.ts), a different need from parseGpx()
+ * above: that one builds a GeoJSON route line for the map (no
+ * timestamps needed), this one needs each point's actual recorded
+ * time, since that's what a history sample is. A point with no <time>
+ * child is skipped rather than guessed at, a history sample with a
+ * fabricated timestamp would be actively misleading.
+ *
+ * @param gpxText - the raw contents of a .gpx file.
+ * @returns every track point that has a real timestamp, in file
+ *   order (not necessarily chronological, that's the caller's/
+ *   database's concern, not this function's).
+ * @throws a plain-language Error for genuinely invalid XML, same as parseGpx().
+ */
+export function parseGpxTrackPoints(gpxText: string): { lat: number; lng: number; recordedAt: string }[] {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(gpxText, "application/xml");
+
+  if (doc.querySelector("parsererror")) {
+    throw new Error("This doesn't look like a valid GPX file (couldn't parse it as XML).");
+  }
+
+  const points: { lat: number; lng: number; recordedAt: string }[] = [];
+  doc.querySelectorAll("trkpt").forEach((point) => {
+    const lat = parseFloat(point.getAttribute("lat") ?? "");
+    const lng = parseFloat(point.getAttribute("lon") ?? "");
+    const timeEl = point.querySelector("time");
+    const recordedAt = timeEl?.textContent;
+    if (Number.isNaN(lat) || Number.isNaN(lng) || !recordedAt) return; // skip points missing lat/lon/time rather than guessing
+    points.push({ lat, lng, recordedAt });
+  });
+
+  return points;
+}

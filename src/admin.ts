@@ -12,15 +12,18 @@ import {
   createRide,
   createRoute,
   endRide,
+  deleteRide,
   startRide,
   fetchAllRides,
   fetchHistorySamples,
+  importHistorySamples,
   fetchParticipants,
   updateParticipantTag,
   fetchFeedback,
   type Ride,
 } from "./core/adapters/supabase";
-import { parseGpx } from "./core/gpx";
+import { parseGpx, parseGpxTrackPoints } from "./core/gpx";
+import { parseHistoryCsv, parseRouteCsv } from "./core/csvImport";
 import { createMap, setRouteLayer } from "./core/map";
 import { samplesToCsv, samplesToGpx } from "./core/rideExport";
 import { bikeTheme } from "./theme/bike/config";
@@ -293,6 +296,65 @@ function buildRideListItem(ride: Ride): HTMLElement {
   });
   actions.appendChild(csvButton);
 
+  // Import: the inverse of the export buttons above, populates
+  // ride_history_samples from an uploaded file instead of downloading
+  // it, real use case is loading realistic pre-recorded test/demo
+  // data (e.g. an exported Strava ride) to exercise the roster/map/
+  // export features without needing live participants. Admin-only,
+  // works regardless of the ride's status (see the "admins can import
+  // history samples for any ride" RLS policy's docs).
+  const importSection = document.createElement("div");
+  importSection.style.cssText = "margin-top: 8px; font-size: 13px;";
+  importSection.innerHTML = `
+    <p style="margin: 4px 0;">Import history: <input type="file" id="import-gpx-${ride.id}" accept=".gpx" style="font-size: 12px;" /> (GPX)
+    <input type="file" id="import-csv-${ride.id}" accept=".csv" style="font-size: 12px;" /> (CSV)</p>
+    <p id="import-status-${ride.id}" style="color: #2e7d32; margin: 2px 0;"></p>
+  `;
+  item.appendChild(importSection);
+
+  const importStatusEl = importSection.querySelector(`#import-status-${ride.id}`) as HTMLParagraphElement;
+
+  const importGpxInput = importSection.querySelector(`#import-gpx-${ride.id}`) as HTMLInputElement;
+  importGpxInput.addEventListener("change", async () => {
+    const file = importGpxInput.files?.[0];
+    if (!file) return;
+    importStatusEl.textContent = "";
+    try {
+      const text = await file.text();
+      const points = parseGpxTrackPoints(text);
+      // One synthetic participant id for the whole file, a GPX track
+      // represents one person's ride, unlike CSV import below, which
+      // can represent several (see parseHistoryCsv()'s docs).
+      const participantId = crypto.randomUUID();
+      await importHistorySamples(
+        ride.id,
+        points.map((p) => ({ participantId, ...p })),
+      );
+      importStatusEl.textContent = `Imported ${points.length} points from GPX.`;
+    } catch (err) {
+      showItemError(err);
+    } finally {
+      importGpxInput.value = ""; // let the same file be re-selected/re-imported if needed
+    }
+  });
+
+  const importCsvInput = importSection.querySelector(`#import-csv-${ride.id}`) as HTMLInputElement;
+  importCsvInput.addEventListener("change", async () => {
+    const file = importCsvInput.files?.[0];
+    if (!file) return;
+    importStatusEl.textContent = "";
+    try {
+      const text = await file.text();
+      const samples = parseHistoryCsv(text);
+      await importHistorySamples(ride.id, samples);
+      importStatusEl.textContent = `Imported ${samples.length} points from CSV.`;
+    } catch (err) {
+      showItemError(err);
+    } finally {
+      importCsvInput.value = "";
+    }
+  });
+
   const participantsButton = document.createElement("button");
   participantsButton.textContent = "Manage participants";
   actions.appendChild(participantsButton);
@@ -365,6 +427,44 @@ function buildRideListItem(ride: Ride): HTMLElement {
     } catch (err) {
       feedbackSection.innerHTML = "";
       showItemError(err);
+    }
+  });
+
+  // Deliberately a two-click confirm built into the button itself
+  // (first click turns it into "Confirm delete?", a second click
+  // within a few seconds actually deletes), rather than a native
+  // confirm() dialog, matching this app's existing no-native-dialogs
+  // pattern elsewhere, while still guarding against an accidental
+  // single click on something this irreversible (cascades to every
+  // participant/route/history-sample/feedback row for this ride too).
+  const deleteButton = document.createElement("button");
+  deleteButton.textContent = "Delete Ride";
+  deleteButton.style.background = "#c62828";
+  actions.appendChild(deleteButton);
+
+  let deleteArmed = false;
+  let deleteArmedTimeout: ReturnType<typeof setTimeout> | null = null;
+  deleteButton.addEventListener("click", async () => {
+    if (!deleteArmed) {
+      deleteArmed = true;
+      deleteButton.textContent = "Confirm delete?";
+      deleteArmedTimeout = setTimeout(() => {
+        deleteArmed = false;
+        deleteButton.textContent = "Delete Ride";
+      }, 4000); // reverts on its own if they don't confirm, rather than staying armed forever
+      return;
+    }
+    if (deleteArmedTimeout) clearTimeout(deleteArmedTimeout);
+    deleteButton.disabled = true;
+    deleteButton.textContent = "Deleting...";
+    try {
+      await deleteRide(ride.id);
+      item.remove(); // gone, no need to keep showing a row for a ride that no longer exists
+    } catch (err) {
+      showItemError(err);
+      deleteArmed = false;
+      deleteButton.disabled = false;
+      deleteButton.textContent = "Delete Ride";
     }
   });
 
@@ -583,6 +683,10 @@ function renderRouteUpload(container: HTMLElement, rideId: string): void {
     <input type="file" id="gpx-file" accept=".gpx" />
     <p class="error" id="gpx-error"></p>
     <p id="gpx-success" style="color: #2e7d32;"></p>
+    <p>Or upload a CSV route file (lat,lng,name, name optional per row)</p>
+    <input type="file" id="route-csv-file" accept=".csv" />
+    <p class="error" id="route-csv-error"></p>
+    <p id="route-csv-success" style="color: #2e7d32;"></p>
   `;
   container.appendChild(section);
 
@@ -600,6 +704,32 @@ function renderRouteUpload(container: HTMLElement, rideId: string): void {
       const text = await file.text(); // read the uploaded file's raw contents
       const geojson = parseGpx(text); // throws a plain-language error on a genuinely malformed file, see gpx.ts
       await createRoute(rideId, geojson, "gpx"); // saves it, the rider-facing map fetches this automatically (see main.ts)
+      const waypointCount = geojson.features.filter((f) => f.properties?.kind === "waypoint").length;
+      successEl.textContent = `Route saved${waypointCount > 0 ? ` (${waypointCount} waypoint${waypointCount === 1 ? "" : "s"})` : ""}.`;
+    } catch (err) {
+      errorEl.textContent = err instanceof Error ? err.message : String(err);
+    }
+  });
+
+  // Second way to set a route, a simpler format than GPX (no XML/GPS-
+  // tool needed to produce one, just a spreadsheet export), same
+  // createRoute()/setRouteLayer() code path either way, see
+  // parseRouteCsv()'s docs in csvImport.ts for the exact expected
+  // format.
+  const csvFileInput = document.getElementById("route-csv-file") as HTMLInputElement;
+  csvFileInput.addEventListener("change", async () => {
+    const file = csvFileInput.files?.[0];
+    if (!file) return;
+
+    const errorEl = document.getElementById("route-csv-error") as HTMLParagraphElement;
+    const successEl = document.getElementById("route-csv-success") as HTMLParagraphElement;
+    errorEl.textContent = "";
+    successEl.textContent = "";
+
+    try {
+      const text = await file.text();
+      const geojson = parseRouteCsv(text);
+      await createRoute(rideId, geojson, "drawn"); // no dedicated "csv" source value, "drawn" (hand-authored, not a GPS device recording) fits better than "gpx"
       const waypointCount = geojson.features.filter((f) => f.properties?.kind === "waypoint").length;
       successEl.textContent = `Route saved${waypointCount > 0 ? ` (${waypointCount} waypoint${waypointCount === 1 ? "" : "s"})` : ""}.`;
     } catch (err) {
@@ -636,6 +766,10 @@ function renderRouteDrawer(container: HTMLElement, rideId: string): void {
       <button type="button" id="route-draw-clear" >Clear</button>
       <button type="button" id="route-draw-save">Save drawn route</button>
     </div>
+    <div style="display: flex; gap: 8px; margin-top: 8px; align-items: center;">
+      <input type="text" id="route-draw-waypoint-name" placeholder="Waypoint name (e.g. Rest Stop)" style="flex: 1; margin: 0;" />
+      <button type="button" id="route-draw-name-point">Name last point</button>
+    </div>
     <p class="error" id="route-draw-error"></p>
     <p id="route-draw-success" style="color: #2e7d32;"></p>
   `;
@@ -646,8 +780,12 @@ function renderRouteDrawer(container: HTMLElement, rideId: string): void {
 
   // Every clicked point, in click order, the only state this control
   // needs to track, everything drawn on the map is rebuilt from this
-  // array on every change rather than mutated in place.
-  let points: { lat: number; lng: number }[] = [];
+  // array on every change rather than mutated in place. `name` is
+  // null for a plain route point, a real string turns that same
+  // point into a genuine saved waypoint too (see "Name last point"
+  // below), no limit on how many, an admin can name as many of their
+  // clicked points as they want.
+  let points: { lat: number; lng: number; name: string | null }[] = [];
 
   const map = createMap("route-draw-map", bikeTheme.defaultMapCenter, bikeTheme.defaultMapZoom);
 
@@ -656,14 +794,16 @@ function renderRouteDrawer(container: HTMLElement, rideId: string): void {
    * array: the connecting line (needs at least 2 points to exist at
    * all) plus a small dot at every clicked point so a single click
    * still gives visible feedback before a second point makes a line
-   * possible. Reuses the "waypoint" style purely for this visual
-   * feedback, these dots are NOT saved as real named waypoints, see
-   * buildFinalRouteGeoJson() below for what actually gets saved.
+   * possible. A point with a `name` shows its real label (see
+   * setRouteLayer()'s waypoint-label layer), an unnamed point still
+   * shows as a plain dot for click feedback, but isn't a real
+   * waypoint, see buildFinalRouteGeoJson() below for exactly what
+   * gets saved.
    */
   function redrawPreview(): void {
     const features: GeoJSON.Feature[] = points.map((p) => ({
       type: "Feature",
-      properties: { kind: "waypoint", name: null },
+      properties: { kind: "waypoint", name: p.name },
       geometry: { type: "Point", coordinates: [p.lng, p.lat] },
     }));
     if (points.length >= 2) {
@@ -676,21 +816,30 @@ function renderRouteDrawer(container: HTMLElement, rideId: string): void {
     setRouteLayer(map, { type: "FeatureCollection", features });
   }
 
-  /** Builds the GeoJSON that actually gets saved: the line only, no per-click dots. */
+  /**
+   * Builds the GeoJSON that actually gets saved: the line, plus one
+   * Point feature for every point the admin gave a name to (see
+   * "Name last point" below), no limit on how many. An unnamed click
+   * (just shaping the line) never gets saved as a waypoint.
+   */
   function buildFinalRouteGeoJson(): GeoJSON.FeatureCollection {
-    return {
-      type: "FeatureCollection",
-      features:
-        points.length >= 2
-          ? [
-              {
-                type: "Feature",
-                properties: { kind: "route" },
-                geometry: { type: "LineString", coordinates: points.map((p) => [p.lng, p.lat]) },
-              },
-            ]
-          : [],
-    };
+    const features: GeoJSON.Feature[] = [];
+    if (points.length >= 2) {
+      features.push({
+        type: "Feature",
+        properties: { kind: "route" },
+        geometry: { type: "LineString", coordinates: points.map((p) => [p.lng, p.lat]) },
+      });
+    }
+    for (const p of points) {
+      if (!p.name) continue;
+      features.push({
+        type: "Feature",
+        properties: { kind: "waypoint", name: p.name },
+        geometry: { type: "Point", coordinates: [p.lng, p.lat] },
+      });
+    }
+    return { type: "FeatureCollection", features };
   }
 
   // Same real race condition already found and fixed in main.ts:
@@ -705,7 +854,7 @@ function renderRouteDrawer(container: HTMLElement, rideId: string): void {
 
   map.on("click", (event) => {
     if (!mapReady) return;
-    points.push({ lat: event.lngLat.lat, lng: event.lngLat.lng });
+    points.push({ lat: event.lngLat.lat, lng: event.lngLat.lng, name: null });
     redrawPreview();
   });
 
@@ -718,6 +867,28 @@ function renderRouteDrawer(container: HTMLElement, rideId: string): void {
   const clearButton = document.getElementById("route-draw-clear") as HTMLButtonElement;
   clearButton.addEventListener("click", () => {
     points = [];
+    redrawPreview();
+  });
+
+  // Names the MOST RECENTLY clicked point, turning it into a real
+  // waypoint (see buildFinalRouteGeoJson() above). Click as many
+  // different points, name each one in turn, however many the ride
+  // actually needs, no hardcoded limit anywhere in this flow.
+  const waypointNameInput = document.getElementById("route-draw-waypoint-name") as HTMLInputElement;
+  const namePointButton = document.getElementById("route-draw-name-point") as HTMLButtonElement;
+  namePointButton.addEventListener("click", () => {
+    errorEl.textContent = "";
+    const name = waypointNameInput.value.trim();
+    if (points.length === 0) {
+      errorEl.textContent = "Click a point on the map first.";
+      return;
+    }
+    if (!name) {
+      errorEl.textContent = "Type a name for the waypoint first.";
+      return;
+    }
+    points[points.length - 1].name = name;
+    waypointNameInput.value = "";
     redrawPreview();
   });
 

@@ -535,6 +535,20 @@ export async function endRide(rideId: string): Promise<void> {
   if (error) throw new Error(`Failed to end ride: ${error.message}`);
 }
 
+/**
+ * Deletes a ride entirely, for real admin-side cleanup (test rides,
+ * duplicates), matches the "any admin can delete any ride" RLS
+ * policy. Every related table (participants, routes, history
+ * samples, feedback) cascade-deletes automatically, the schema's own
+ * foreign keys handle that, not this function.
+ *
+ * @param rideId - which ride to permanently delete.
+ */
+export async function deleteRide(rideId: string): Promise<void> {
+  const { error } = await supabase.from("rides").delete().eq("id", rideId);
+  if (error) throw new Error(`Failed to delete ride: ${error.message}`);
+}
+
 // ── Route functions ──────────────────────────────────────────────────
 
 export type Route = {
@@ -624,6 +638,40 @@ export async function fetchHistorySamples(
     lng: row.lng as number,
     recordedAt: row.recorded_at as string,
   }));
+}
+
+/**
+ * Bulk-imports history samples (from an uploaded GPX/CSV file, see
+ * src/core/gpx.ts's parseGpxTrackPoints() and
+ * src/core/csvImport.ts's parseHistoryCsv()) for a ride, admin-only
+ * (matches the "admins can import history samples for any ride" RLS
+ * policy, which deliberately works regardless of the ride's status,
+ * unlike a live rider's own position updates). Real use case: loading
+ * realistic pre-recorded test/demo data (e.g. an exported Strava
+ * ride) to exercise the roster/map/export features without needing
+ * live participants.
+ *
+ * @param rideId - which ride to attach the imported samples to.
+ * @param participantId - which participant id to attach the samples
+ *   to. GPX import generates one synthetic id for the whole file (see
+ *   the caller in admin.ts); CSV import instead reuses whatever
+ *   participant ids were already in the file, this parameter is only
+ *   used as a fallback for rows that need one.
+ * @param samples - the parsed points to insert.
+ */
+export async function importHistorySamples(
+  rideId: string,
+  samples: { participantId: string; lat: number; lng: number; recordedAt: string }[],
+): Promise<void> {
+  const rows = samples.map((s) => ({
+    ride_id: rideId,
+    participant_id: s.participantId,
+    lat: s.lat,
+    lng: s.lng,
+    recorded_at: s.recordedAt,
+  }));
+  const { error } = await supabase.from("ride_history_samples").insert(rows);
+  if (error) throw new Error(`Failed to import history samples: ${error.message}`);
 }
 
 // ── Feedback functions ──────────────────────────────────────────────

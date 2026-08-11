@@ -1,7 +1,7 @@
 // ── Unit tests for src/core/gpx.ts ─────────────────────────────────
 
 import { describe, expect, it } from "vitest";
-import { parseGpx } from "../gpx";
+import { parseGpx, parseGpxTrackPoints } from "../gpx";
 
 // A small, real-shaped GPX file (the same format Strava/RideWithGPS
 // export), three track points forming a route plus one named waypoint.
@@ -65,5 +65,28 @@ describe("parseGpx", () => {
     const result = parseGpx(onePoint);
     const route = result.features.find((f) => f.properties?.kind === "route");
     expect(route).toBeUndefined();
+  });
+});
+
+describe("parseGpxTrackPoints", () => {
+  it("extracts lat/lng/recordedAt from track points that have a <time>", () => {
+    const gpxWithTimes = `<?xml version="1.0"?><gpx version="1.1"><trk><trkseg>
+      <trkpt lat="33.42" lon="-111.83"><time>2026-08-11T10:00:00Z</time></trkpt>
+      <trkpt lat="33.43" lon="-111.84"><time>2026-08-11T10:01:00Z</time></trkpt>
+    </trkseg></trk></gpx>`;
+    const points = parseGpxTrackPoints(gpxWithTimes);
+    expect(points).toEqual([
+      { lat: 33.42, lng: -111.83, recordedAt: "2026-08-11T10:00:00Z" },
+      { lat: 33.43, lng: -111.84, recordedAt: "2026-08-11T10:01:00Z" },
+    ]);
+  });
+
+  it("skips a track point missing a <time>, rather than fabricating one", () => {
+    const mixed = `<?xml version="1.0"?><gpx version="1.1"><trk><trkseg>
+      <trkpt lat="33.42" lon="-111.83"><time>2026-08-11T10:00:00Z</time></trkpt>
+      <trkpt lat="33.43" lon="-111.84"></trkpt>
+    </trkseg></trk></gpx>`;
+    const points = parseGpxTrackPoints(mixed);
+    expect(points).toHaveLength(1);
   });
 });
