@@ -14,7 +14,7 @@ import {
   type RideParticipant,
   type RideStatus,
 } from "./adapters/supabase";
-import { distanceMeters, headingDegrees, type GpsPoint } from "./geo";
+import { distanceMeters, headingDegrees, isRealMovement, type GpsPoint } from "./geo";
 import { countsAsMovement } from "./stuckDetection";
 import { watchOnlineStatus, type OnlineStatusCallback } from "./offlineBuffer";
 import { HISTORY_SAMPLE_INTERVAL_SECONDS } from "./policy";
@@ -24,6 +24,19 @@ import { HISTORY_SAMPLE_INTERVAL_SECONDS } from "./policy";
 // compare the newest one against. Null until the first real reading
 // arrives.
 let previousPoint: GpsPoint | null = null;
+
+// The position actually shown on the map/written to the database,
+// distinct from previousPoint above (every raw reading, used only for
+// heading/speed). Real report this fixes: standing still, the dot
+// visibly jumped 30-50 meters back and forth, every poll broadcast
+// whatever the device's fresh raw reading happened to be, with no
+// check for whether it was a real move or just GPS noise (a reading
+// with 40m accuracy genuinely can land anywhere within 40m of the
+// true position, that's not a bug in the reading). This only updates
+// (and only then gets broadcast) once a new reading is far enough
+// from it to be real movement, see geo.ts's isRealMovement(). Null
+// until the first real reading arrives.
+let lastBroadcastPoint: GpsPoint | null = null;
 
 // When this device last wrote a row into ride_history_samples, kept
 // separately from previousPoint above (which updates every poll) so
@@ -126,12 +139,26 @@ export async function pollOnce(
       // a rider who just joined isn't immediately flagged stuck.
       const moved = !previousPoint || countsAsMovement(distanceMeters(previousPoint, currentPoint));
 
+      // What actually gets shown on the map/written as this device's
+      // position: only updates once a reading is far enough from the
+      // last one shown to be real movement rather than GPS noise, see
+      // lastBroadcastPoint's docs above and geo.ts's isRealMovement().
+      // Broadcasting the STABLE point (not always currentPoint) is
+      // what stops the dot jumping around while genuinely stationary.
+      let pointToBroadcast: GpsPoint;
+      if (!lastBroadcastPoint || isRealMovement(distanceMeters(lastBroadcastPoint, currentPoint), currentPoint.accuracyM)) {
+        pointToBroadcast = currentPoint; // first-ever reading, or a real move away from the last shown position
+      } else {
+        pointToBroadcast = lastBroadcastPoint; // within GPS noise of the last shown position, keep it pinned there
+      }
+      lastBroadcastPoint = pointToBroadcast;
+
       await updateParticipantPosition(
         participantId,
         {
-          lat: currentPoint.lat,
-          lng: currentPoint.lng,
-          accuracyM: currentPoint.accuracyM,
+          lat: pointToBroadcast.lat,
+          lng: pointToBroadcast.lng,
+          accuracyM: currentPoint.accuracyM, // always the freshest reading's own accuracy, still meaningful for signal-status even while position is pinned
           headingDeg,
           speedMps,
         },

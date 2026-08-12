@@ -49,6 +49,28 @@ export function distanceMeters(a: GpsPoint, b: GpsPoint): number {
 }
 
 /**
+ * Decides whether a fresh GPS reading represents real movement or
+ * just noise, given how far it is from the last position actually
+ * shown/broadcast. Real-world report this fixes: standing still, the
+ * dot visibly jumped back and forth by tens of meters, every poll
+ * broadcast the device's raw new reading regardless of how it
+ * compared to the last one. GPS accuracy is never perfect, a reading
+ * with accuracyM: 40 genuinely could be anywhere within 40 meters of
+ * the device's real position, that's not a bug in the reading, it's
+ * what the number means. Comparing the moved distance against THAT
+ * reading's own accuracy (not a fixed constant) is the standard fix:
+ * movement smaller than the reading's own uncertainty radius isn't
+ * distinguishable from noise, so don't treat it as real.
+ *
+ * @param distanceMovedMeters - distance between the new reading and
+ *   the last position actually shown/broadcast.
+ * @param newReadingAccuracyM - the new reading's own accuracy radius.
+ */
+export function isRealMovement(distanceMovedMeters: number, newReadingAccuracyM: number): boolean {
+  return distanceMovedMeters > newReadingAccuracyM;
+}
+
+/**
  * Speed in meters per second between two GPS points, given their
  * timestamps. Returns 0 if the points are simultaneous or out of
  * order (a zero or negative time gap), rather than dividing by zero

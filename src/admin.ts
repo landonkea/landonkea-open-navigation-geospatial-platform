@@ -19,6 +19,7 @@ import {
   importHistorySamples,
   fetchParticipants,
   updateParticipantTag,
+  leaveRide,
   fetchFeedback,
   type Ride,
 } from "./core/adapters/supabase";
@@ -52,9 +53,13 @@ function applyBaseStyles(): void {
        over the gradient rather than raw see-through text-on-text. */
     #admin-root { max-width: 420px; margin: 40px auto; padding: 24px; background: rgba(255, 255, 255, 0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
     input, select { display: block; width: 100%; box-sizing: border-box; padding: 8px; margin: 6px 0 14px; font-size: 16px; background: rgba(255, 255, 255, 0.6); border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 4px; }
-    button { padding: 10px 16px; font-size: 16px; background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; border: none; border-radius: 4px; cursor: pointer; }
+    /* 0.9 alpha, not fully opaque, matches the same "everything but
+       the actual page background gets some transparency" pass main.ts
+       got, buttons stay a bit more solid than cards (0.75) since they
+       need to stay clearly tappable. */
+    button { padding: 10px 16px; font-size: 16px; background: linear-gradient(135deg, rgba(255,179,71,0.9), rgba(255,126,31,0.9)); color: white; border: none; border-radius: 4px; cursor: pointer; }
     .error { color: #c62828; font-size: 14px; }
-    .ride-link { word-break: break-all; background: #fff3e0; padding: 8px; border-radius: 4px; font-family: monospace; }
+    .ride-link { word-break: break-all; background: rgba(255,243,224,0.9); padding: 8px; border-radius: 4px; font-family: monospace; }
     #brand-logo { position: absolute; top: 12px; left: 12px; max-height: 32px; max-width: 140px; opacity: 0.8; pointer-events: none; }
   `;
   document.head.appendChild(style);
@@ -260,7 +265,7 @@ function buildRideListItem(ride: Ride): HTMLElement {
   if (ride.status === "created") {
     const startButton = document.createElement("button");
     startButton.textContent = "Start Ride";
-    startButton.style.background = "#2e7d32";
+    startButton.style.background = "rgba(46,125,50,0.9)";
     startButton.addEventListener("click", async () => {
       startButton.disabled = true;
       try {
@@ -277,7 +282,7 @@ function buildRideListItem(ride: Ride): HTMLElement {
   if (ride.status !== "ended") {
     const endButton = document.createElement("button");
     endButton.textContent = "End Ride";
-    endButton.style.background = "#c62828";
+    endButton.style.background = "rgba(198,40,40,0.9)";
     endButton.addEventListener("click", async () => {
       endButton.disabled = true;
       try {
@@ -406,7 +411,9 @@ function buildRideListItem(ride: Ride): HTMLElement {
         return;
       }
       for (const participant of participants) {
-        participantsSection.appendChild(buildParticipantTagRow(participant.id, participant.tag, participant.is_spectator));
+        participantsSection.appendChild(
+          buildParticipantTagRow(participant.id, participant.tag, participant.is_spectator, participant.device_hash),
+        );
       }
     } catch (err) {
       participantsSection.innerHTML = "";
@@ -460,7 +467,7 @@ function buildRideListItem(ride: Ride): HTMLElement {
   // participant/route/history-sample/feedback row for this ride too).
   const deleteButton = document.createElement("button");
   deleteButton.textContent = "Delete Ride";
-  deleteButton.style.background = "#c62828";
+  deleteButton.style.background = "rgba(198,40,40,0.9)";
   actions.appendChild(deleteButton);
 
   let deleteArmed = false;
@@ -505,19 +512,34 @@ function buildRideListItem(ride: Ride): HTMLElement {
  * @param participantId - which participant this row is for.
  * @param currentTag - their current tag id, or null.
  * @param isSpectator - shown as a small label, purely informational.
+ * @param deviceHash - a stable per-device label (see
+ *   src/core/deviceHash.ts), shown instead of the raw internal id when
+ *   available, the same physical device shows the same short code
+ *   across rides, unlike the random participant id. Display-only,
+ *   never used to look anything up. Null for rows written before this
+ *   existed, falls back to the raw id in that case.
  */
-function buildParticipantTagRow(participantId: string, currentTag: string | null, isSpectator: boolean): HTMLElement {
+function buildParticipantTagRow(
+  participantId: string,
+  currentTag: string | null,
+  isSpectator: boolean,
+  deviceHash: string | null,
+): HTMLElement {
   const row = document.createElement("div");
   row.style.cssText = "display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 14px;";
 
   const label = document.createElement("span");
-  label.textContent = `${participantId.slice(0, 8)}… ${isSpectator ? "(spectator)" : "(rider)"}`;
+  // Riders never enter a name (no login, no account), this is the
+  // only thing that tells two rows apart. Prefer the stable device
+  // hash when we have one, falls back to the raw participant id for
+  // older rows that predate device_hash.
+  label.textContent = `Device: ${deviceHash ?? participantId.slice(0, 8) + "…"} ${isSpectator ? "(spectator)" : "(rider)"}`;
   row.appendChild(label);
 
   const select = document.createElement("select");
   const noneOption = document.createElement("option");
   noneOption.value = "";
-  noneOption.textContent = "No tag";
+  noneOption.textContent = "Standard rider";
   select.appendChild(noneOption);
   for (const tag of bikeTheme.tags) {
     const option = document.createElement("option");
@@ -543,6 +565,45 @@ function buildParticipantTagRow(participantId: string, currentTag: string | null
     }
   });
 
+  // Force-removes this one participant from the ride, distinct from
+  // "Delete Ride" (which removes the whole ride for everyone). Reuses
+  // leaveRide(), the exact same function a rider's own "Leave Ride"
+  // button calls on themselves, the underlying RLS policy already
+  // permits deleting any participant row (no ownership check, same
+  // trust model as the rest of this schema), an admin calling it on
+  // someone else's id needed no new migration. Two-click confirm, same
+  // pattern as the ride list's "Delete Ride" button.
+  const removeButton = document.createElement("button");
+  removeButton.textContent = "Remove";
+  removeButton.style.cssText = "background: rgba(198,40,40,0.9); font-size: 12px; padding: 4px 10px;";
+  row.appendChild(removeButton);
+
+  let removeArmed = false;
+  let removeArmedTimeout: ReturnType<typeof setTimeout> | null = null;
+  removeButton.addEventListener("click", async () => {
+    if (!removeArmed) {
+      removeArmed = true;
+      removeButton.textContent = "Confirm?";
+      removeArmedTimeout = setTimeout(() => {
+        removeArmed = false;
+        removeButton.textContent = "Remove";
+      }, 4000);
+      return;
+    }
+    if (removeArmedTimeout) clearTimeout(removeArmedTimeout);
+    removeButton.disabled = true;
+    try {
+      await leaveRide(participantId);
+      row.remove(); // gone from the ride, no reason to keep showing this row
+    } catch (err) {
+      statusEl.textContent = err instanceof Error ? err.message : String(err);
+      statusEl.style.color = "#c62828";
+      removeArmed = false;
+      removeButton.disabled = false;
+      removeButton.textContent = "Remove";
+    }
+  });
+
   return row;
 }
 
@@ -562,7 +623,7 @@ function buildParticipantTagRow(participantId: string, currentTag: string | null
 function renderStartRideButton(container: HTMLElement, rideId: string): void {
   const section = document.createElement("div");
   section.innerHTML = `
-    <button id="start-ride-button" style="background: #2e7d32; margin-top: 20px;">Start Ride</button>
+    <button id="start-ride-button" style="background: rgba(46,125,50,0.9); margin-top: 20px;">Start Ride</button>
     <p class="error" id="start-ride-error"></p>
     <p id="start-ride-success" style="color: #2e7d32;"></p>
   `;
@@ -575,6 +636,13 @@ function renderStartRideButton(container: HTMLElement, rideId: string): void {
     button.disabled = true;
     try {
       await startRide(rideId);
+      // A disabled button alone isn't a strong enough visual signal,
+      // this one keeps its bright green background regardless (a real
+      // report: it "doesn't change to started" even though it had
+      // worked, the success message below was the only real proof).
+      // Matches buildRideListItem()'s own Start Ride button, which
+      // already does this.
+      button.textContent = "Started";
       successEl.textContent = "Ride started. Riders can now join using the link/QR code above.";
     } catch (err) {
       errorEl.textContent = err instanceof Error ? err.message : String(err);
@@ -597,7 +665,7 @@ function renderStartRideButton(container: HTMLElement, rideId: string): void {
 function renderEndRideButton(container: HTMLElement, rideId: string): void {
   const section = document.createElement("div");
   section.innerHTML = `
-    <button id="end-ride-button" style="background: #c62828; margin-top: 20px;">End Ride</button>
+    <button id="end-ride-button" style="background: rgba(198,40,40,0.9); margin-top: 20px;">End Ride</button>
     <p class="error" id="end-ride-error"></p>
     <p id="end-ride-success" style="color: #2e7d32;"></p>
   `;

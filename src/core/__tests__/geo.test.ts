@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest"; // Vitest's test-writing function
 import {
   distanceMeters,
   headingDegrees,
+  isRealMovement,
   signalStatus,
   speedMetersPerSecond,
   type GpsPoint,
@@ -84,6 +85,22 @@ describe("headingDegrees", () => {
     const a = point(0, 1);
     const b = point(0, 0); // same latitude, lower longitude
     expect(headingDegrees(a, b)).toBeCloseTo(270, 0);
+  });
+});
+
+describe("isRealMovement", () => {
+  it("treats a move smaller than the reading's own accuracy as noise, not real movement", () => {
+    // A 40m-accuracy reading that's 25m away could just as easily be
+    // the same real position, that's what a 40m accuracy radius means.
+    expect(isRealMovement(25, 40)).toBe(false);
+  });
+
+  it("treats a move larger than the reading's own accuracy as real movement", () => {
+    expect(isRealMovement(60, 40)).toBe(true); // further than the reading could plausibly be off by
+  });
+
+  it("treats a move exactly equal to the accuracy radius as not yet real movement (boundary check)", () => {
+    expect(isRealMovement(40, 40)).toBe(false); // strictly greater than required, not equal
   });
 });
 

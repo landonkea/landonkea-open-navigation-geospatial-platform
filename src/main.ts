@@ -43,8 +43,15 @@ function applyBaseStyles(): void {
   layoutStyle.textContent = `
     html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
     #map { position: absolute; inset: 0; }
-    #join-banner { position: absolute; top: 0; left: 0; right: 0; z-index: 5; background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; padding: 8px 12px; font-size: 14px; text-align: center; }
-    #join-banner button { margin-left: 10px; padding: 4px 10px; font-size: 13px; background: #fff8e1; color: #ff7e1f; border: none; border-radius: 4px; cursor: pointer; }
+    /* Every button/panel below uses a semi-transparent background
+       (0.85-0.9 opacity, a bit more solid than the 0.75 cards use,
+       buttons need to stay clearly tappable) instead of a flat opaque
+       color, so the map/gradient shows through everywhere, not just
+       the cards. Semantic colors (offline-indicator's red, the
+       roster's green/yellow/red status dots) keep their meaning, just
+       with alpha added, never changed to a different color. */
+    #join-banner { position: absolute; top: 0; left: 0; right: 0; z-index: 5; background: linear-gradient(135deg, rgba(255,179,71,0.9), rgba(255,126,31,0.9)); color: white; padding: 8px 12px; font-size: 14px; text-align: center; }
+    #join-banner button { margin-left: 10px; padding: 4px 10px; font-size: 13px; background: rgba(255,248,225,0.9); color: #ff7e1f; border: none; border-radius: 4px; cursor: pointer; }
     #join-choice { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
     /* Semi-transparent "frosted glass" cards, the blur behind them
        keeps text readable while still letting the map/gradient show
@@ -52,27 +59,27 @@ function applyBaseStyles(): void {
     #join-choice .card { background: rgba(255, 255, 255, 0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-radius: 10px; padding: 28px; max-width: 360px; text-align: center; }
     #join-choice h2 { margin-top: 0; }
     #join-choice button { display: block; width: 100%; padding: 14px; margin: 8px 0; font-size: 16px; border-radius: 6px; border: none; cursor: pointer; }
-    #join-choice .ride-btn { background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; }
-    #join-choice .watch-btn { background: #fff3e0; color: #7a4a00; }
+    #join-choice .ride-btn { background: linear-gradient(135deg, rgba(255,179,71,0.9), rgba(255,126,31,0.9)); color: white; }
+    #join-choice .watch-btn { background: rgba(255,243,224,0.9); color: #7a4a00; }
     #tag-picker { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
     #tag-picker .card { background: rgba(255, 255, 255, 0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-radius: 10px; padding: 28px; max-width: 360px; width: 90%; max-height: 80vh; overflow-y: auto; text-align: center; }
     #tag-picker h2 { margin-top: 0; }
     #tag-picker button { display: block; width: 100%; padding: 14px; margin: 8px 0; font-size: 16px; border-radius: 6px; border: none; cursor: pointer; }
-    #tag-picker .ride-btn { background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; }
-    #tag-picker .watch-btn { background: #fff3e0; color: #7a4a00; }
+    #tag-picker .ride-btn { background: linear-gradient(135deg, rgba(255,179,71,0.9), rgba(255,126,31,0.9)); color: white; }
+    #tag-picker .watch-btn { background: rgba(255,243,224,0.9); color: #7a4a00; }
     #location-help { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
     #location-help .card { background: rgba(255, 255, 255, 0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-radius: 10px; padding: 24px; max-width: 380px; }
     #location-help ol { padding-left: 20px; }
     #location-help li { margin-bottom: 8px; }
-    #location-help button { padding: 10px 16px; font-size: 15px; background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; border: none; border-radius: 6px; cursor: pointer; margin-top: 8px; }
-    #view-switcher { position: absolute; bottom: 12px; left: 12px; z-index: 10; background: white; border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); overflow: hidden; }
-    #view-switcher button { display: block; width: 90px; padding: 8px; font-size: 13px; border: none; background: white; cursor: pointer; }
-    #view-switcher button.active { background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; }
-    #roster-toggle { position: absolute; bottom: 12px; right: 60px; z-index: 10; background: #fff8e1; border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
-    #roster-panel { position: absolute; inset: 0; z-index: 15; background: white; overflow-y: auto; padding: 16px; }
+    #location-help button { padding: 10px 16px; font-size: 15px; background: linear-gradient(135deg, rgba(255,179,71,0.9), rgba(255,126,31,0.9)); color: white; border: none; border-radius: 6px; cursor: pointer; margin-top: 8px; }
+    #view-switcher { position: absolute; bottom: 12px; left: 12px; z-index: 10; background: rgba(255,255,255,0.85); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); overflow: hidden; }
+    #view-switcher button { display: block; width: 90px; padding: 8px; font-size: 13px; border: none; background: transparent; cursor: pointer; }
+    #view-switcher button.active { background: linear-gradient(135deg, rgba(255,179,71,0.9), rgba(255,126,31,0.9)); color: white; }
+    #roster-toggle { position: absolute; bottom: 12px; right: 60px; z-index: 10; background: rgba(255,248,225,0.9); border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
+    #roster-panel { position: absolute; inset: 0; z-index: 15; background: rgba(255,255,255,0.9); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); overflow-y: auto; padding: 16px; }
     #roster-panel h2 { margin-top: 40px; }
     #roster-panel .summary { color: #555; margin-bottom: 12px; }
-    #roster-panel .close-roster { position: absolute; top: 12px; right: 12px; padding: 8px 14px; background: #fff3e0; border: none; border-radius: 6px; cursor: pointer; }
+    #roster-panel .close-roster { position: absolute; top: 12px; right: 12px; padding: 8px 14px; background: rgba(255,243,224,0.9); border: none; border-radius: 6px; cursor: pointer; }
     #roster-panel ul { list-style: none; padding: 0; margin: 0; }
     #roster-panel li { display: flex; align-items: center; gap: 10px; padding: 10px; border-bottom: 1px solid #eee; }
     #roster-panel .dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
@@ -80,23 +87,23 @@ function applyBaseStyles(): void {
     #roster-panel .dot.yellow { background: #f9a825; }
     #roster-panel .dot.red { background: #c62828; }
     #roster-panel .stuck-flag { color: #c62828; font-weight: bold; font-size: 12px; }
-    #install-prompt { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 10; background: #fff8e1; border-radius: 8px; padding: 10px 16px; box-shadow: 0 1px 6px rgba(0,0,0,0.3); font-size: 13px; display: flex; align-items: center; gap: 10px; max-width: 90%; }
-    #install-prompt button { padding: 6px 12px; font-size: 13px; background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; border: none; border-radius: 4px; cursor: pointer; }
+    #install-prompt { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 10; background: rgba(255,248,225,0.9); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-radius: 8px; padding: 10px 16px; box-shadow: 0 1px 6px rgba(0,0,0,0.3); font-size: 13px; display: flex; align-items: center; gap: 10px; max-width: 90%; }
+    #install-prompt button { padding: 6px 12px; font-size: 13px; background: linear-gradient(135deg, rgba(255,179,71,0.9), rgba(255,126,31,0.9)); color: white; border: none; border-radius: 4px; cursor: pointer; }
     #install-prompt .dismiss { background: none; color: #888; padding: 4px; }
-    #offline-indicator { position: absolute; top: 44px; left: 0; right: 0; z-index: 9; background: #c62828; color: white; text-align: center; padding: 6px; font-size: 13px; }
+    #offline-indicator { position: absolute; top: 44px; left: 0; right: 0; z-index: 9; background: rgba(198,40,40,0.9); color: white; text-align: center; padding: 6px; font-size: 13px; }
     /* Semi-transparent so it reads as a watermark, not a solid badge
        fighting for attention with the map, and never intercepts
        clicks/taps meant for whatever's underneath it. */
     #brand-logo { position: absolute; top: 12px; left: 12px; z-index: 10; max-height: 32px; max-width: 140px; opacity: 0.8; pointer-events: none; }
-    #share-button { position: absolute; top: 12px; right: 12px; z-index: 10; background: #fff8e1; border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
-    #feedback-button { position: absolute; top: 56px; right: 12px; z-index: 10; background: #fff8e1; border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
-    #leave-ride-button { position: absolute; top: 100px; right: 12px; z-index: 10; background: #fff8e1; border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
+    #share-button { position: absolute; top: 12px; right: 12px; z-index: 10; background: rgba(255,248,225,0.9); border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
+    #feedback-button { position: absolute; top: 56px; right: 12px; z-index: 10; background: rgba(255,248,225,0.9); border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
+    #leave-ride-button { position: absolute; top: 100px; right: 12px; z-index: 10; background: rgba(255,248,225,0.9); border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
     #feedback-form { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
     #feedback-form .card { background: rgba(255, 255, 255, 0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-radius: 10px; padding: 24px; max-width: 360px; width: 90%; }
     #feedback-form textarea { width: 100%; box-sizing: border-box; padding: 10px; font-size: 15px; border-radius: 6px; border: 1px solid #ffcc80; margin: 10px 0; font-family: inherit; resize: vertical; background: rgba(255, 255, 255, 0.6); }
     #feedback-form button { padding: 10px 16px; font-size: 15px; border: none; border-radius: 6px; cursor: pointer; margin-right: 8px; }
-    #feedback-form .submit-btn { background: linear-gradient(135deg, #ffb347, #ff7e1f); color: white; }
-    #feedback-form .cancel-btn { background: #fff3e0; color: #7a4a00; }
+    #feedback-form .submit-btn { background: linear-gradient(135deg, rgba(255,179,71,0.9), rgba(255,126,31,0.9)); color: white; }
+    #feedback-form .cancel-btn { background: rgba(255,243,224,0.9); color: #7a4a00; }
   `;
   document.head.appendChild(layoutStyle);
 }
@@ -289,15 +296,15 @@ function showJoinChoice(): Promise<"ride" | "watch"> {
 
 /**
  * Shows the optional, self-select tag picker (build prompt's
- * "Optional rider tags" section, e.g. "Marshal", "Sweep") right after
- * showJoinChoice() resolves, for either path (a spectator can tag
- * themselves "Photographer/media" without ever sharing location, see
+ * "Optional rider tags" section, e.g. "Traffic Marshal", "DJ Bike")
+ * right after showJoinChoice() resolves, for either path (a spectator can tag
+ * themselves "DJ Bike" without ever sharing location, see
  * joinAsSpectator()'s docs). The tag list itself comes from
  * bikeTheme.tags (src/theme/bike/config.ts), a different theme would
  * show a different list with zero changes needed here.
  *
  * @returns a promise resolving to the chosen tag id, or null if they
- *   pick "No tag" (the common case, this is optional).
+ *   pick "Standard rider" (the common case, this is optional).
  */
 function showTagPicker(): Promise<string | null> {
   return new Promise((resolve) => {
@@ -306,7 +313,7 @@ function showTagPicker(): Promise<string | null> {
     overlay.innerHTML = `
       <div class="card">
         <h2>Any role for this ${bikeTheme.eventWordSingular}? (optional)</h2>
-        <button class="watch-btn" id="tag-none">No tag</button>
+        <button class="watch-btn" id="tag-none">Standard rider</button>
         ${bikeTheme.tags
           .map((tag) => `<button class="ride-btn" data-tag-id="${tag.id}">${tag.icon} ${tag.label}</button>`)
           .join("")}
@@ -348,7 +355,7 @@ function showLocationHelp(reason: SpectatorReason | undefined): Promise<void> {
         <p>Steps for ${guidance.label}:</p>
         <ol>${guidance.steps.map((s) => `<li>${s}</li>`).join("")}</ol>
         <button id="location-help-retry">Try again</button>
-        <button id="location-help-watch" style="background:#fff3e0;color:#7a4a00;">Just watch instead</button>
+        <button id="location-help-watch" style="background:rgba(255,243,224,0.9);color:#7a4a00;">Just watch instead</button>
       </div>
     `;
     document.body.appendChild(overlay);

@@ -103,6 +103,10 @@ export type RideParticipant = {
   // connection-status, a rider can have perfect signal (recent
   // last_seen_at) while genuinely stopped.
   last_moved_at: string;
+  // Display-only label for the admin panel, see src/core/deviceHash.ts,
+  // never used for identity/auth/RLS. Null for any row written before
+  // this column existed.
+  device_hash: string | null;
 };
 
 // ── Ride functions ──────────────────────────────────────────────────
@@ -242,6 +246,7 @@ export async function joinRide(
   participantId: string,
   isSpectator: boolean,
   tag: string | null = null,
+  deviceHash: string | null = null,
 ): Promise<RideParticipant> {
   // upsert, not insert: participantId is stable per device+ride (see
   // participantId.ts), so a page reload mid-ride reuses the same id.
@@ -251,7 +256,7 @@ export async function joinRide(
   // of erroring.
   const { data, error } = await supabase
     .from("ride_participants")
-    .upsert({ id: participantId, ride_id: rideId, is_spectator: isSpectator, tag }) // lat/lng start null, filled in by the first position update
+    .upsert({ id: participantId, ride_id: rideId, is_spectator: isSpectator, tag, device_hash: deviceHash }) // lat/lng start null, filled in by the first position update
     .select() // return the row, whether it was just created or already existed
     .single(); // expect exactly one row back
 

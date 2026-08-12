@@ -11,6 +11,7 @@
 
 import { joinRide, becomeRider, type RideParticipant } from "./adapters/supabase";
 import { getOrCreateParticipantId } from "./participantId";
+import { computeDeviceHash } from "./deviceHash";
 
 // WHY THIS EXISTS (added after real testing): the original version of
 // this file collapsed every non-success outcome into a plain "denied"
@@ -99,7 +100,8 @@ export type JoinResult = {
  */
 export async function joinAsSpectator(rideId: string, tag: string | null = null): Promise<JoinResult> {
   const participantId = getOrCreateParticipantId(rideId);
-  const participant = await joinRide(rideId, participantId, true, tag);
+  const deviceHash = await computeDeviceHash();
+  const participant = await joinRide(rideId, participantId, true, tag, deviceHash);
   return { participant, isSpectator: true };
 }
 
@@ -117,7 +119,8 @@ export async function joinAsRider(rideId: string, tag: string | null = null): Pr
   const isSpectator = !outcome.granted;
 
   const participantId = getOrCreateParticipantId(rideId); // stable id for this device+ride
-  const participant = await joinRide(rideId, participantId, isSpectator, tag); // create the row in Supabase
+  const deviceHash = await computeDeviceHash();
+  const participant = await joinRide(rideId, participantId, isSpectator, tag, deviceHash); // create the row in Supabase
 
   return {
     participant,

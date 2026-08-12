@@ -60,18 +60,18 @@ export const bikeTheme: EventTheme = {
   participantWord: "rider", // "rider" instead of the generic "participant"
   participantVerbGerund: "riding", // "I'm riding", the join-choice button's verb
 
-  // Starter tag list straight from the build prompt's "Optional rider
-  // tags" section. A plain array, not a hardcoded enum, so an admin
-  // can add more later without a code change (once an admin UI for
-  // editing this list exists, not yet built).
+  // Narrowed down from the build prompt's original 7-tag starter list
+  // to just these two, per explicit request, plus the always-present
+  // "No tag" option in showTagPicker() (main.ts) covers "a standard
+  // rider, nothing special." A plain array, not a hardcoded enum, so
+  // an admin can add more later without a code change (once an admin
+  // UI for editing this list exists, not yet built). Any ride's
+  // existing participant rows tagged with a since-removed id (e.g.
+  // "sweep") still work fine, tagLabel() in main.ts just falls back
+  // to showing the raw id for those instead of a pretty label.
   tags: [
-    { id: "marshal", label: "Marshal", icon: "🚦" }, // directs traffic, usually stationary
-    { id: "sweep", label: "Sweep", icon: "🧹" }, // rides at the back, makes sure nobody's left behind
-    { id: "lead", label: "Lead/Pacer", icon: "🚴" }, // sets the pace at the front
-    { id: "sag", label: "SAG/support vehicle", icon: "🚐" }, // support car/van
-    { id: "first-timer", label: "First-timer", icon: "👋" }, // first ride with the group
-    { id: "dj", label: "DJ bike", icon: "🎵" }, // provides music for the group
-    { id: "media", label: "Photographer/media", icon: "📷" }, // documenting the ride
+    { id: "marshal", label: "Traffic Marshal", icon: "🚦" }, // directs traffic, usually stationary
+    { id: "dj", label: "DJ Bike", icon: "🎵" }, // provides music for the group
   ],
 
   // 15 seconds is the build prompt's recommended default, riders can
