@@ -242,6 +242,12 @@ export function setParticipantLayer(
       "circle-radius": 8,
       "circle-stroke-width": 2,
       "circle-stroke-color": "#ffffff",
+      // Softer visual cue on top of the discrete status color, see
+      // geo.ts's staleOpacity(): a dot 91 seconds stale and one 20
+      // minutes stale are both "red", but shouldn't look equally
+      // current. coalesce() covers any feature that predates this
+      // property (falls back to fully opaque, not invisible).
+      "circle-opacity": ["coalesce", ["get", "opacity"], 1],
     },
   });
 
@@ -258,7 +264,7 @@ export function setParticipantLayer(
       "text-size": 10,
       "text-allow-overlap": true,
     },
-    paint: { "text-color": "#ffffff" },
+    paint: { "text-color": "#ffffff", "text-opacity": ["coalesce", ["get", "opacity"], 1] },
   });
 }
 

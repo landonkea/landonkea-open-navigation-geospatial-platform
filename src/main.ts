@@ -10,7 +10,9 @@ import { createMap, setParticipantLayer, setMapView, setRouteLayer, type MapView
 import { bikeTheme } from "./theme/bike/config";
 import { joinAsRider, joinAsSpectator, retryLocationShare, type JoinResult, type SpectatorReason } from "./core/join";
 import { startPolling } from "./core/sync";
-import { signalStatus, type SignalStatus } from "./core/geo";
+import { distanceMeters, signalStatus, staleOpacity, type SignalStatus } from "./core/geo";
+import { formatDistance, formatSpeed, formatTemperatureC } from "./core/units";
+import type { LngLat } from "./theme/bike/config";
 import { detectLocationGuidance } from "./core/locationHelp";
 import { keepWakeLockAlive, releaseWakeLock } from "./core/wakeLock";
 import { isPossiblyStuck } from "./core/stuckDetection";
@@ -72,6 +74,7 @@ function applyBaseStyles(): void {
     #location-help ol { padding-left: 20px; }
     #location-help li { margin-bottom: 8px; }
     #location-help button { padding: 10px 16px; font-size: 15px; background: linear-gradient(135deg, rgba(255,179,71,0.9), rgba(255,126,31,0.9)); color: white; border: none; border-radius: 6px; cursor: pointer; margin-top: 8px; }
+    #info-panel { position: absolute; bottom: 54px; left: 12px; z-index: 10; background: rgba(255,255,255,0.85); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); padding: 6px 10px; font-size: 12px; color: #333; display: none; }
     #view-switcher { position: absolute; bottom: 12px; left: 12px; z-index: 10; background: rgba(255,255,255,0.85); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); overflow: hidden; }
     #view-switcher button { display: block; width: 90px; padding: 8px; font-size: 13px; border: none; background: transparent; cursor: pointer; }
     #view-switcher button.active { background: linear-gradient(135deg, rgba(255,179,71,0.9), rgba(255,126,31,0.9)); color: white; }
@@ -207,11 +210,12 @@ function toParticipantFeatures(participants: RideParticipant[]): ParticipantFeat
 
     const lastSeenMs = new Date(participant.last_seen_at).getTime();
     const status = signalStatus(lastSeenMs, participant.accuracy_m ?? 0, nowMs);
+    const opacity = staleOpacity(lastSeenMs, nowMs);
 
     features.push({
       type: "Feature",
       geometry: { type: "Point", coordinates: [participant.lng, participant.lat] },
-      properties: { status, id: participant.id, tag: participant.tag },
+      properties: { status, id: participant.id, tag: participant.tag, opacity },
     });
   }
 
@@ -611,6 +615,95 @@ function setUpLeaveRideButton(onLeave: () => Promise<void>): void {
   });
 }
 
+/**
+ * Renders a small bottom-left badge showing the current weather (once,
+ * fetched at load, weather doesn't need live polling) and, once a
+ * rider has a GPS fix, the closest other rider and how far away they
+ * are, recomputed on every poll from data already on hand (same "no
+ * new data collection required" reasoning as the roster view above).
+ * Both lines are optional/best-effort: a weather-fetch failure or a
+ * rider with no fix yet just hides that line, never blocks anything
+ * else in the app.
+ */
+function setUpInfoPanel(): {
+  setWeather: (text: string) => void;
+  updateNearestRider: (participants: RideParticipant[], ownParticipantId: string) => void;
+} {
+  const panel = document.createElement("div");
+  panel.id = "info-panel";
+  const weatherLine = document.createElement("div");
+  const nearestLine = document.createElement("div");
+  panel.append(weatherLine, nearestLine);
+  document.body.appendChild(panel);
+
+  function showIfAnyContent(): void {
+    panel.style.display = weatherLine.textContent || nearestLine.textContent ? "block" : "none";
+  }
+
+  return {
+    setWeather(text: string) {
+      weatherLine.textContent = text;
+      showIfAnyContent();
+    },
+    updateNearestRider(participants: RideParticipant[], ownParticipantId: string) {
+      const own = participants.find((p) => p.id === ownParticipantId);
+      if (!own || own.lat === null || own.lng === null) {
+        nearestLine.textContent = "";
+        showIfAnyContent();
+        return;
+      }
+
+      let nearestMeters: number | null = null;
+      let nearestTag: string | null = null;
+      for (const p of participants) {
+        if (p.id === ownParticipantId || p.is_spectator || p.lat === null || p.lng === null) continue;
+        const d = distanceMeters(
+          { lat: own.lat, lng: own.lng, accuracyM: 0, timestampMs: 0 },
+          { lat: p.lat, lng: p.lng, accuracyM: 0, timestampMs: 0 },
+        );
+        if (nearestMeters === null || d < nearestMeters) {
+          nearestMeters = d;
+          nearestTag = p.tag;
+        }
+      }
+
+      if (nearestMeters === null) {
+        nearestLine.textContent = "";
+      } else {
+        const who = nearestTag ? tagLabel(nearestTag) : `another ${bikeTheme.participantWord}`;
+        nearestLine.textContent = `Nearest: ${who}, ${formatDistance(nearestMeters, bikeTheme.unitSystem)} away`;
+      }
+      showIfAnyContent();
+    },
+  };
+}
+
+/**
+ * Fetches current temperature/wind for the ride's default map center
+ * via Open-Meteo (free, no API key/signup, unlike most weather APIs),
+ * formatted per the theme's unitSystem. Best-effort only: any failure
+ * (offline, API down, unexpected response shape) returns null rather
+ * than throwing, a missing weather badge is a cosmetic loss, never
+ * worth blocking the actual ride-tracking experience over.
+ */
+async function fetchWeatherBadgeText(center: LngLat): Promise<string | null> {
+  try {
+    const response = await fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${center.lat}&longitude=${center.lng}&current=temperature_2m,wind_speed_10m`,
+    );
+    if (!response.ok) return null;
+    const data = (await response.json()) as { current?: { temperature_2m?: number; wind_speed_10m?: number } };
+    const tempC = data.current?.temperature_2m;
+    if (typeof tempC !== "number") return null;
+    const tempStr = formatTemperatureC(tempC, bikeTheme.unitSystem);
+    const windKmh = data.current?.wind_speed_10m; // Open-Meteo's default wind unit
+    const windStr = typeof windKmh === "number" ? `, ${formatSpeed(windKmh / 3.6, bikeTheme.unitSystem)} wind` : "";
+    return `${tempStr}${windStr}`;
+  } catch {
+    return null;
+  }
+}
+
 function setUpRosterView(): (participants: RideParticipant[]) => void {
   let latestParticipants: RideParticipant[] = []; // remembered so opening the panel always shows current data
   let isOpen = false;
@@ -719,6 +812,10 @@ async function main(): Promise<void> {
   setUpViewSwitcher(map, () => latestParticipantFeatures);
   const updateRoster = setUpRosterView(); // returns a function to call with fresh data on every poll
   const updateOfflineIndicator = setUpOfflineIndicator(); // returns a function matching startPolling's onOnlineStatusChange shape
+  const infoPanel = setUpInfoPanel();
+  fetchWeatherBadgeText(bikeTheme.defaultMapCenter).then((text) => {
+    if (text) infoPanel.setWeather(text);
+  });
 
   // The URL holds either a short slug (new links, e.g. "/08112026")
   // or, for backward compatibility with any already-shared old-style
@@ -856,6 +953,7 @@ async function main(): Promise<void> {
         features: latestParticipantFeatures,
       });
       updateRoster(participants); // same poll data, no extra network request, see setUpRosterView()'s docstring
+      infoPanel.updateNearestRider(participants, participant.id); // same poll data too, see setUpInfoPanel()'s docstring
     };
 
     const onRideEnded = () => {

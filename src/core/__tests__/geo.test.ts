@@ -12,6 +12,7 @@ import {
   isRealMovement,
   signalStatus,
   speedMetersPerSecond,
+  staleOpacity,
   type GpsPoint,
 } from "../geo";
 
@@ -125,5 +126,27 @@ describe("signalStatus", () => {
 
   it("treats exactly-at-threshold accuracy as still green (boundary check)", () => {
     expect(signalStatus(now - 5_000, 25, now)).toBe("green"); // exactly at the 25m cutoff, not over it
+  });
+});
+
+describe("staleOpacity", () => {
+  const now = 1_000_000;
+
+  it("is fully opaque for a brand-new update", () => {
+    expect(staleOpacity(now, now)).toBe(1);
+  });
+
+  it("fades partway for a moderately stale update", () => {
+    const opacity = staleOpacity(now - 180_000, now); // 3 minutes old, halfway to the 6-minute floor
+    expect(opacity).toBeGreaterThan(0.3);
+    expect(opacity).toBeLessThan(1);
+  });
+
+  it("floors at 0.3 rather than fading to invisible, however stale", () => {
+    expect(staleOpacity(now - 3_600_000, now)).toBeCloseTo(0.3, 10); // 1 hour stale
+  });
+
+  it("never goes below the floor even for a future/negative age (defensive)", () => {
+    expect(staleOpacity(now + 10_000, now)).toBe(1); // "last update" in the future, clamps to fresh, not >1
   });
 });

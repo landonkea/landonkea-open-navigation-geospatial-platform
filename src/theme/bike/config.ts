@@ -50,6 +50,12 @@ export type EventTheme = {
   // code changes anywhere. Null skips rendering it entirely, for a
   // theme with no logo yet.
   logoUrl: string | null;
+  // "imperial" (mi/ft, mph, °F) or "metric" (km/m, km/h, °C), drives
+  // every formatted distance/speed/temperature string via
+  // src/core/units.ts. A per-theme setting rather than per-device,
+  // since a given client's whole audience typically shares one
+  // convention (this project's first client, bikeMesa, is a US group).
+  unitSystem: "imperial" | "metric";
 };
 
 // The actual bike/bikeMesa theme values, this is the one export other
@@ -87,4 +93,6 @@ export const bikeTheme: EventTheme = {
   // Swap this path (and public/logo-placeholder.svg itself) for a
   // real client logo whenever one's ready.
   logoUrl: "/logo-placeholder.svg",
+
+  unitSystem: "imperial", // bikeMesa is a US audience
 };

@@ -143,3 +143,19 @@ export function signalStatus(
   if (lastAccuracyM > DEGRADED_ACCURACY_M) return "yellow"; // recent, but GPS accuracy is poor
   return "green"; // recent and accurate, the good case
 }
+
+/**
+ * Map-dot opacity (0.3-1) for how stale a position is, a softer visual
+ * cue layered on top of the discrete green/yellow/red status: two red
+ * dots (one 91 seconds stale, one stale for 20 minutes) look identical
+ * under signalStatus() alone, this makes the difference visible at a
+ * glance instead of both looking equally "current". Floors at 0.3
+ * rather than fading to invisible, a long-stale rider should stay
+ * visibly present on the map, just clearly old.
+ */
+export function staleOpacity(lastUpdateTimestampMs: number, nowMs: number): number {
+  const ageMs = nowMs - lastUpdateTimestampMs;
+  const fullyFadedAfterMs = STALE_AFTER_MS * 4; // reaches the floor at ~6 minutes stale
+  const fraction = Math.min(Math.max(ageMs / fullyFadedAfterMs, 0), 1);
+  return 1 - fraction * 0.7; // 1.0 (fresh) down to 0.3 (very stale)
+}

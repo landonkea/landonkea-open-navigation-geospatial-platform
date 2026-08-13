@@ -188,6 +188,26 @@ function renderCreateRide(adminUserId: string): void {
       const canvas = document.createElement("canvas");
       resultEl.appendChild(canvas);
       await QRCode.toCanvas(canvas, joinUrl, { width: 220 });
+
+      // One-tap copy, small but removes real friction: without this an
+      // admin has to select the plain-text link above by hand, easy to
+      // mis-select on a phone screen while setting up a ride.
+      const copyButton = document.createElement("button");
+      copyButton.type = "button";
+      copyButton.textContent = "Copy Link";
+      copyButton.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(joinUrl);
+          copyButton.textContent = "Copied!";
+          setTimeout(() => {
+            copyButton.textContent = "Copy Link";
+          }, 2000);
+        } catch (err) {
+          console.error("Clipboard copy failed:", err);
+        }
+      });
+      resultEl.appendChild(copyButton);
+
       nameInput.value = ""; // clear the field so creating another ride starts fresh
 
       renderRouteUpload(resultEl, ride.id); // let the admin optionally add a GPX route right after creating the ride
