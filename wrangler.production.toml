@@ -1,0 +1,20 @@
+# Separate Worker config for the production environment, following the
+# exact pattern wrangler.staging.toml established (its own file, not an
+# [env.production] section in wrangler.toml, so each environment's deploy
+# step points at a clearly separate, unambiguous config file by name).
+#
+# Scaffolding only as of 2026-08-13: no Worker with this name exists in
+# Cloudflare yet, and .github/workflows/deploy-production.yml has nothing
+# to trigger it (no `production` branch exists). Per OPERATIONS.md's
+# "Next concrete steps", standing up real production is a deliberate step
+# the user is doing themselves (naming it, deciding on a custom domain).
+# This file exists so that step, whenever it happens, is "create a
+# `production` branch and push" instead of reverse-engineering the staging
+# setup from scratch. Update `name` below if the user picks something
+# other than this default before the first real deploy.
+name = "landonkea-open-navigation-geospatial-platform-production"
+compatibility_date = "2026-08-11"
+
+[assets]
+directory = "./dist"
+not_found_handling = "single-page-application"

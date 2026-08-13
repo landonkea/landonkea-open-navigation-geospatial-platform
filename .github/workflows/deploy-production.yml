@@ -1,0 +1,67 @@
+# ── Production deployment: Cloudflare Workers, via GitHub Actions ───
+# WHAT: mirrors deploy-staging.yml exactly, targeting production instead
+# (separate wrangler.production.toml, separate Cloudflare Worker). Deploys
+# on every push to a `production` branch, same trigger pattern staging
+# uses for its own branch.
+#
+# Scaffolding only as of 2026-08-13: no `production` branch exists yet in
+# this repo, so this workflow has nothing to trigger it and deploys
+# nothing on its own. Per OPERATIONS.md's "Next concrete steps", standing
+# up real production (naming the Worker, deciding on a custom domain) is
+# a deliberate step the user is doing themselves; this file exists so
+# that step is "create the branch and push" instead of writing a new
+# workflow from scratch, following the staging template OPERATIONS.md
+# already points to.
+#
+# Uses the same VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY secrets the
+# GitHub Pages fallback build (deploy-pages.yml) already uses, not a
+# separate PRODUCTION_* pair: OPERATIONS.md's "Decisions made" section
+# documents that dev and production currently share the same Supabase
+# project (a real free-tier project-count limit, not a design choice),
+# so there is only one production backend to point at.
+name: Deploy production (Cloudflare Worker)
+
+on:
+  push:
+    branches: [production]
+  workflow_dispatch: # also allow manually re-running from the Actions tab
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Build with production's Supabase credentials
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: npx vite build
+
+      # Same footgun as staging's deploy: public/_redirects is a
+      # Pages-era mechanism that Cloudflare's Workers static-assets
+      # system rejects outright ("Invalid _redirects configuration...
+      # Infinite loop detected", see OPERATIONS.md bug #16 and the
+      # staging deploy's own comment on this). not_found_handling in
+      # wrangler.production.toml already covers the same fallback
+      # behavior natively.
+      - name: Remove the Pages-era _redirects file (Workers doesn't need or want it)
+        run: rm -f dist/_redirects
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          command: deploy --config wrangler.production.toml
