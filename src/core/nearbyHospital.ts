@@ -11,7 +11,7 @@
 // instance can be slow or briefly unavailable, this always fails soft
 // (returns null) rather than blocking anything else in the app.
 
-import { distanceMeters } from "./geo";
+import { distanceMetersPlain } from "./geo";
 
 export type NearbyHospital = { name: string; distanceMeters: number };
 
@@ -32,7 +32,14 @@ const FETCH_TIMEOUT_MS = 8_000;
  *   reason (network error, timeout, malformed response). Never throws.
  */
 export async function fetchNearestHospital(lat: number, lng: number): Promise<NearbyHospital | null> {
-  const query = `[out:json][timeout:10];node["amenity"="hospital"](around:${SEARCH_RADIUS_METERS},${lat},${lng});out body 10;`;
+  // "out body 50", not a smaller cap (found in review): Overpass
+  // doesn't sort results by distance, so a small cap risks cutting off
+  // the response before the actually-nearest hospital appears in a
+  // dense city with many hospitals inside the search radius. A higher
+  // cap doesn't guarantee correctness (Overpass still gives no
+  // distance-ordering guarantee at all), but meaningfully reduces how
+  // often a genuinely closer hospital gets excluded outright.
+  const query = `[out:json][timeout:10];node["amenity"="hospital"](around:${SEARCH_RADIUS_METERS},${lat},${lng});out body 50;`;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
@@ -51,10 +58,7 @@ export async function fetchNearestHospital(lat: number, lng: number): Promise<Ne
     let nearest: NearbyHospital | null = null;
     for (const el of elements) {
       if (!el.tags?.name) continue; // an unnamed node isn't useful to show someone
-      const meters = distanceMeters(
-        { lat, lng, accuracyM: 0, timestampMs: 0 },
-        { lat: el.lat, lng: el.lon, accuracyM: 0, timestampMs: 0 },
-      );
+      const meters = distanceMetersPlain({ lat, lng }, { lat: el.lat, lng: el.lon });
       if (!nearest || meters < nearest.distanceMeters) nearest = { name: el.tags.name, distanceMeters: meters };
     }
     return nearest;

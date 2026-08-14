@@ -10,10 +10,11 @@ import { createMap, setParticipantLayer, setMapView, setRouteLayer, type MapView
 import { bikeTheme } from "./theme/bike/config";
 import { joinAsRider, joinAsSpectator, retryLocationShare, type JoinResult, type SpectatorReason } from "./core/join";
 import { startPolling, type PollResult } from "./core/sync";
-import { distanceMeters, signalStatus, staleOpacity, type SignalStatus } from "./core/geo";
+import { distanceMetersPlain, signalStatus, staleOpacity, type SignalStatus } from "./core/geo";
 import { formatDistance, formatSpeed, formatTemperatureC } from "./core/units";
 import { copyToClipboardWithFeedback } from "./core/clipboard";
 import { fetchNearestHospital } from "./core/nearbyHospital";
+import { escapeHtml } from "./core/escapeHtml";
 import type { LngLat } from "./theme/bike/config";
 import { detectLocationGuidance } from "./core/locationHelp";
 import { keepWakeLockAlive, releaseWakeLock } from "./core/wakeLock";
@@ -121,7 +122,13 @@ function applyBaseStyles(): void {
     #emergency-info h2 { margin-top: 0; color: #c62828; }
     #emergency-info .disclaimer { font-size: 12px; color: #777; margin-top: 16px; }
     #emergency-info button.close-btn { padding: 10px 16px; font-size: 15px; background: rgba(255,243,224,0.9); color: #7a4a00; border: none; border-radius: 6px; cursor: pointer; margin-top: 12px; }
-    #checkpoint-toast { position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%); z-index: 25; background: rgba(46,125,50,0.92); color: white; padding: 10px 18px; border-radius: 20px; font-size: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+    /* A stacking container, not one fixed-id element (found in
+       review): two named waypoints close enough together could
+       otherwise both fire in the same poll and render two elements at
+       the exact same spot, overlapping and unreadable. flex-column
+       naturally stacks any number of simultaneous toasts instead. */
+    #checkpoint-toast-container { position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%); z-index: 25; display: flex; flex-direction: column-reverse; align-items: center; gap: 8px; }
+    #checkpoint-toast-container .toast-item { background: rgba(46,125,50,0.92); color: white; padding: 10px 18px; border-radius: 20px; font-size: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); white-space: nowrap; }
     #feedback-form { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
     #feedback-form .card { background: rgba(255, 255, 255, 0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-radius: 10px; padding: 24px; max-width: 360px; width: 90%; }
     #feedback-form textarea { width: 100%; box-sizing: border-box; padding: 10px; font-size: 15px; border-radius: 6px; border: 1px solid #ffcc80; margin: 10px 0; font-family: inherit; resize: vertical; background: rgba(255, 255, 255, 0.6); }
@@ -683,7 +690,7 @@ function setUpEmergencyInfoButton(): void {
     overlay.innerHTML = `
       <div class="card">
         <h2>Emergency Info</h2>
-        ${bikeTheme.emergencyContactInfo ? `<p>${bikeTheme.emergencyContactInfo}</p>` : ""}
+        ${bikeTheme.emergencyContactInfo ? `<p>${escapeHtml(bikeTheme.emergencyContactInfo)}</p>` : ""}
         <p class="nearest-hospital">Finding nearest hospital…</p>
         <p class="disclaimer">In a real emergency, call your local emergency number first. This is informational only, not a substitute for that.</p>
         <button class="close-btn">Close</button>
@@ -707,7 +714,12 @@ function setUpEmergencyInfoButton(): void {
       () => {
         hospitalEl.textContent = "Couldn't get your location to look up nearby hospitals.";
       },
-      { timeout: 10_000 },
+      // enableHighAccuracy, not the default coarse fix (found in
+      // review): matches sync.ts's own getCurrentPosition(), and
+      // matters more here than anywhere else in the app, a coarse
+      // network-based fix (potentially off by kilometers) is exactly
+      // wrong for "which hospital is actually nearest me."
+      { enableHighAccuracy: true, timeout: 10_000 },
     );
   });
 }
@@ -735,10 +747,21 @@ function setUpCheckpointProximity(
   const alreadyToasted = new Set<number>(); // indexes into `waypoints`
 
   function showToast(name: string): void {
+    // One shared container (created lazily, reused across calls), not
+    // a fresh fixed-id element per toast (found in review): that let
+    // two waypoints close together render overlapping, unreadable
+    // elements at the same spot. Each toast is its own child instead,
+    // the container's CSS (flex-column) stacks any number of them.
+    let container = document.getElementById("checkpoint-toast-container");
+    if (!container) {
+      container = document.createElement("div");
+      container.id = "checkpoint-toast-container";
+      document.body.appendChild(container);
+    }
     const toast = document.createElement("div");
-    toast.id = "checkpoint-toast";
+    toast.className = "toast-item";
     toast.textContent = `Near: ${name}`;
-    document.body.appendChild(toast);
+    container.appendChild(toast);
     setTimeout(() => toast.remove(), 4000);
   }
 
@@ -746,10 +769,7 @@ function setUpCheckpointProximity(
     if (!own) return;
     waypoints.forEach((waypoint, index) => {
       if (alreadyToasted.has(index)) return;
-      const distance = distanceMeters(
-        { lat: own.lat, lng: own.lng, accuracyM: 0, timestampMs: 0 },
-        { lat: waypoint.lat, lng: waypoint.lng, accuracyM: 0, timestampMs: 0 },
-      );
+      const distance = distanceMetersPlain(own, waypoint);
       if (distance <= CHECKPOINT_PROXIMITY_METERS) {
         alreadyToasted.add(index);
         showToast(waypoint.name);
@@ -822,12 +842,13 @@ function setUpInfoPanel(): {
       showIfAnyContent();
     },
     updateNearestRider(participants: RideParticipant[], ownParticipantId: string) {
-      const own = participants.find((p) => p.id === ownParticipantId);
-      if (!own || own.lat === null || own.lng === null) {
+      const ownParticipant = participants.find((p) => p.id === ownParticipantId);
+      if (!ownParticipant || ownParticipant.lat === null || ownParticipant.lng === null) {
         nearestLine.textContent = "";
         showIfAnyContent();
         return;
       }
+      const own = { lat: ownParticipant.lat, lng: ownParticipant.lng };
 
       // Tracked as one object, not two loose variables kept in sync by
       // hand (found in review): a future field on the winner (e.g. the
@@ -837,10 +858,7 @@ function setUpInfoPanel(): {
       let nearest: { meters: number; tag: string | null } | null = null;
       for (const p of participants) {
         if (p.id === ownParticipantId || p.is_spectator || p.lat === null || p.lng === null) continue;
-        const meters = distanceMeters(
-          { lat: own.lat, lng: own.lng, accuracyM: 0, timestampMs: 0 },
-          { lat: p.lat, lng: p.lng, accuracyM: 0, timestampMs: 0 },
-        );
+        const meters = distanceMetersPlain(own, { lat: p.lat, lng: p.lng });
         if (nearest === null || meters < nearest.meters) nearest = { meters, tag: p.tag };
       }
 
@@ -963,10 +981,7 @@ function setUpFinishCelebration(finalWaypoint: { lat: number; lng: number } | nu
   let celebrated = false;
   return (own) => {
     if (celebrated || !finalWaypoint || !own) return;
-    const distance = distanceMeters(
-      { lat: own.lat, lng: own.lng, accuracyM: 0, timestampMs: 0 },
-      { lat: finalWaypoint.lat, lng: finalWaypoint.lng, accuracyM: 0, timestampMs: 0 },
-    );
+    const distance = distanceMetersPlain(own, finalWaypoint);
     if (distance <= FINISH_PROXIMITY_METERS) {
       celebrated = true;
       triggerConfetti();
@@ -1138,8 +1153,17 @@ async function main(): Promise<void> {
   // case this is just null and setRouteLayer() draws nothing).
   const route = await fetchRouteForRide(rideId);
   if (route?.geojson) setRouteLayer(map, route.geojson);
-  const updateFinishCelebration = setUpFinishCelebration(findFinalWaypoint(route?.geojson));
-  const updateCheckpointProximity = setUpCheckpointProximity(findNamedWaypoints(route?.geojson));
+  const finalWaypoint = findFinalWaypoint(route?.geojson);
+  const updateFinishCelebration = setUpFinishCelebration(finalWaypoint);
+  // Excludes the final waypoint (found in review): it's already
+  // covered by the confetti celebration above, without this a named
+  // finish waypoint fired BOTH a plain "Near: Finish" toast and
+  // confetti in the same poll tick, a confusing double notification
+  // for the one waypoint that's supposed to feel like a bigger moment.
+  const checkpointWaypoints = findNamedWaypoints(route?.geojson).filter(
+    (wp) => !(finalWaypoint && wp.lat === finalWaypoint.lat && wp.lng === finalWaypoint.lng),
+  );
+  const updateCheckpointProximity = setUpCheckpointProximity(checkpointWaypoints);
 
   const banner = document.createElement("div");
   banner.id = "join-banner";

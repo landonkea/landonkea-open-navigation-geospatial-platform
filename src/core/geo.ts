@@ -49,6 +49,18 @@ export function distanceMeters(a: GpsPoint, b: GpsPoint): number {
 }
 
 /**
+ * distanceMeters() for two plain {lat, lng} points, no accuracy/
+ * timestamp needed. Several call sites (main.ts's nearest-rider/
+ * finish-line/checkpoint proximity checks, nearbyHospital.ts) only
+ * ever have a bare lat/lng and were each independently padding out a
+ * fake GpsPoint (`{ ...point, accuracyM: 0, timestampMs: 0 }`) just to
+ * call distanceMeters(), found duplicated three times in review.
+ */
+export function distanceMetersPlain(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  return distanceMeters({ ...a, accuracyM: 0, timestampMs: 0 }, { ...b, accuracyM: 0, timestampMs: 0 });
+}
+
+/**
  * Decides whether a fresh GPS reading represents real movement or
  * just noise, given how far it is from the last position actually
  * shown/broadcast. Real-world report this fixes: standing still, the
