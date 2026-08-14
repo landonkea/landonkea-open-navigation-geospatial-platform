@@ -244,20 +244,24 @@ export type StatusSummary = {
  * this function doesn't catch/hide that itself.
  */
 export async function fetchStatusSummary(): Promise<StatusSummary> {
-  const { count: activeRideCount, error: rideError } = await supabase
-    .from("rides")
-    .select("*", { count: "exact", head: true })
-    .eq("status", "active");
-  if (rideError) throw new Error(`Failed to fetch active ride count: ${rideError.message}`);
+  // Run both count queries concurrently, not sequentially (found in
+  // review): they're fully independent, and this function is polled
+  // every 30s by the public status page, doubling its round-trip
+  // latency for no reason had a real, ongoing cost.
+  const [rideResult, participantResult] = await Promise.all([
+    supabase.from("rides").select("*", { count: "exact", head: true }).eq("status", "active"),
+    supabase
+      .from("ride_participants")
+      .select("*, rides!inner(status)", { count: "exact", head: true })
+      .eq("is_spectator", false)
+      .eq("rides.status", "active"),
+  ]);
 
-  const { count: ridersOnlineCount, error: participantError } = await supabase
-    .from("ride_participants")
-    .select("*, rides!inner(status)", { count: "exact", head: true })
-    .eq("is_spectator", false)
-    .eq("rides.status", "active");
-  if (participantError) throw new Error(`Failed to fetch riders-online count: ${participantError.message}`);
+  if (rideResult.error) throw new Error(`Failed to fetch active ride count: ${rideResult.error.message}`);
+  if (participantResult.error)
+    throw new Error(`Failed to fetch riders-online count: ${participantResult.error.message}`);
 
-  return { activeRideCount: activeRideCount ?? 0, ridersOnlineCount: ridersOnlineCount ?? 0 };
+  return { activeRideCount: rideResult.count ?? 0, ridersOnlineCount: participantResult.count ?? 0 };
 }
 
 // ── Participant functions ───────────────────────────────────────────

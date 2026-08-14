@@ -7,11 +7,18 @@
 
 import { bikeTheme } from "./theme/bike/config";
 import { fetchStatusSummary } from "./core/adapters/supabase";
+import { escapeHtml } from "./core/escapeHtml";
 
 const REFRESH_INTERVAL_MS = 30_000;
 
+function capitalize(word: string): string {
+  return word[0].toUpperCase() + word.slice(1);
+}
+
+const PAGE_TITLE = `${capitalize(bikeTheme.eventWordSingular)} platform status`;
+
 function applyStyles(): void {
-  document.title = `${bikeTheme.eventWordSingular} platform status`;
+  document.title = PAGE_TITLE;
   const style = document.createElement("style");
   style.textContent = `
     html, body { margin: 0; min-height: 100%; font-family: system-ui, sans-serif; background: linear-gradient(135deg, #ffb347, #ff7e1f); }
@@ -37,10 +44,10 @@ async function refresh(root: HTMLElement): Promise<void> {
     const summary = await fetchStatusSummary();
     root.innerHTML = `
       <div class="card">
-        <h1>${bikeTheme.eventWordSingular[0].toUpperCase()}${bikeTheme.eventWordSingular.slice(1)} platform status</h1>
+        <h1>${PAGE_TITLE}</h1>
         <div class="row"><span class="dot up"></span><span class="label">Backend (Supabase)</span><span class="value">Reachable</span></div>
         <div class="row"><span class="label">Active ${bikeTheme.eventWordPlural} right now</span><span class="value">${summary.activeRideCount}</span></div>
-        <div class="row"><span class="label">${bikeTheme.participantWord[0].toUpperCase()}${bikeTheme.participantWord.slice(1)}s currently online</span><span class="value">${summary.ridersOnlineCount}</span></div>
+        <div class="row"><span class="label">${capitalize(bikeTheme.participantWord)}s currently online</span><span class="value">${summary.ridersOnlineCount}</span></div>
         <div class="checked-at">Last checked: ${new Date().toLocaleTimeString()}, refreshes every 30s</div>
       </div>
       <div class="hosts">
@@ -50,11 +57,16 @@ async function refresh(root: HTMLElement): Promise<void> {
       </div>
     `;
   } catch (err) {
+    // escapeHtml() on err.message specifically (found in review): this
+    // string ultimately wraps a Supabase/PostgREST error message (see
+    // fetchStatusSummary()'s docs), not text this app fully controls,
+    // and this is a public, no-login page, the same unescaped-innerHTML
+    // pattern OPERATIONS.md bug #15 already burned this project on once.
     root.innerHTML = `
       <div class="card">
-        <h1>${bikeTheme.eventWordSingular[0].toUpperCase()}${bikeTheme.eventWordSingular.slice(1)} platform status</h1>
+        <h1>${PAGE_TITLE}</h1>
         <div class="row"><span class="dot down"></span><span class="label">Backend (Supabase)</span><span class="value">Unreachable</span></div>
-        <div class="checked-at">Last checked: ${new Date().toLocaleTimeString()}, retrying every 30s. (${err instanceof Error ? err.message : String(err)})</div>
+        <div class="checked-at">Last checked: ${new Date().toLocaleTimeString()}, retrying every 30s. (${escapeHtml(err instanceof Error ? err.message : String(err))})</div>
       </div>
     `;
   }

@@ -27,6 +27,7 @@ import {
 } from "./core/adapters/supabase";
 import { parseGpx, parseGpxTrackPoints } from "./core/gpx";
 import { copyToClipboardWithFeedback } from "./core/clipboard";
+import { escapeHtml } from "./core/escapeHtml";
 import { parseHistoryCsv, parseRouteCsv } from "./core/csvImport";
 import { createMap, setRouteLayer } from "./core/map";
 import { samplesToCsv, samplesToGpx } from "./core/rideExport";
@@ -82,21 +83,6 @@ function setUpBrandLogo(): void {
   img.src = `${import.meta.env.BASE_URL}${bikeTheme.logoUrl.replace(/^\//, "")}`;
   img.alt = "";
   document.body.appendChild(img);
-}
-
-/**
- * Escapes a plain string for safe insertion into innerHTML. Needed
- * anywhere a user-entered value (a ride name, admin-chosen) gets
- * shown, without this an admin could name a ride
- * "<img src=x onerror=alert(1)>" and have it actually execute in
- * every admin's browser who later views it (stored XSS), textContent
- * itself auto-escapes, this just borrows that behavior via a scratch
- * element rather than reimplementing HTML-escaping by hand.
- */
-function escapeHtml(value: string): string {
-  const scratch = document.createElement("div");
-  scratch.textContent = value;
-  return scratch.innerHTML;
 }
 
 /**
@@ -214,7 +200,10 @@ function renderCreateRide(adminUserId: string): void {
       renderEndRideButton(resultEl, ride.id); // explicit lifecycle control, build prompt's "Ride lifecycle" section
       renderExportButtons(resultEl, ride); // build prompt's "Ride data export" section
       loadAndRenderRideList(rideListContainer, adminUserId); // refresh so the just-created ride shows up in the list below immediately
-      loadAndRenderDashboardCards(document.getElementById("dashboard-cards") as HTMLDivElement); // a new ride changes the "active rides" count
+      // NOT a dashboard-card refresh here: createRide() leaves a ride
+      // in "created", not "active" (see startRide()'s docs), so this
+      // moment can never actually change the active-ride/riders-online
+      // counts, only Start Ride/End Ride can (see those handlers below).
     } catch (err) {
       errorEl.textContent = err instanceof Error ? err.message : String(err);
     }
@@ -230,6 +219,18 @@ function renderCreateRide(adminUserId: string): void {
  * blocking the rest of the admin screen, this is a nice-to-have
  * summary, not something the ride-creation flow depends on.
  */
+/**
+ * Refreshes the dashboard cards by id, a convenience for the several
+ * places that change the active-ride/riders-online counts (Start
+ * Ride, End Ride) but don't otherwise have a reference to the cards
+ * container. Silently does nothing if the element isn't on the page
+ * (defensive only, it always is on the one screen these actions live on).
+ */
+function refreshDashboardCards(): void {
+  const container = document.getElementById("dashboard-cards") as HTMLDivElement | null;
+  if (container) loadAndRenderDashboardCards(container);
+}
+
 async function loadAndRenderDashboardCards(container: HTMLDivElement): Promise<void> {
   const cardStyle =
     "background: rgba(255,255,255,0.6); border-radius: 8px; padding: 12px 18px; min-width: 140px;";
@@ -266,11 +267,35 @@ async function loadAndRenderRideList(container: HTMLDivElement, adminUserId: str
       return;
     }
     for (const ride of rides) {
-      container.appendChild(buildRideListItem(ride, adminUserId, () => loadAndRenderRideList(container, adminUserId)));
+      container.appendChild(buildRideListItem(ride, adminUserId, (newRide) => onRideListChanged(container, adminUserId, newRide)));
     }
   } catch (err) {
     container.innerHTML = `<p class="error">${escapeHtml(err instanceof Error ? err.message : String(err))}</p>`;
   }
+}
+
+/**
+ * Handles a ride-list row reporting a change. Two cases, on purpose
+ * (found in review, the original version always did a full reload):
+ * - `newRide` provided (currently only "Duplicate", see
+ *   buildRideListItem()): the new row is inserted directly at the top
+ *   instead of reloading the whole list, so every OTHER row's
+ *   already-open "Manage participants"/"View Feedback" panel or an
+ *   armed-but-not-yet-confirmed "Delete Ride" doesn't silently reset
+ *   just because a sibling row changed.
+ * - no `newRide`: falls back to a full reload (not currently used by
+ *   any caller, kept as the safe default for a future action that
+ *   genuinely needs one, e.g. a ride disappearing entirely).
+ */
+function onRideListChanged(container: HTMLDivElement, adminUserId: string, newRide?: Ride): void {
+  if (!newRide) {
+    loadAndRenderRideList(container, adminUserId);
+    return;
+  }
+  const heading = container.querySelector("h3");
+  const item = buildRideListItem(newRide, adminUserId, (r) => onRideListChanged(container, adminUserId, r));
+  if (heading) heading.after(item);
+  else container.prepend(item);
 }
 
 /**
@@ -286,11 +311,12 @@ async function loadAndRenderRideList(container: HTMLDivElement, adminUserId: str
  * @param ride - the ride this row represents.
  * @param adminUserId - needed for the "Duplicate" action below.
  * @param onChanged - called after an action that changes the list
- *   itself (currently just "Duplicate", which adds a new row), so the
- *   caller can refresh. End Ride/Delete Ride update their own row in
- *   place instead and don't need this.
+ *   itself (currently just "Duplicate"). Pass the newly-created ride
+ *   when there is one, see onRideListChanged()'s docs for why: it lets
+ *   the caller insert just the one new row instead of reloading (and
+ *   thereby collapsing every other row's open panels/armed deletes).
  */
-function buildRideListItem(ride: Ride, adminUserId: string, onChanged: () => void): HTMLElement {
+function buildRideListItem(ride: Ride, adminUserId: string, onChanged: (newRide?: Ride) => void): HTMLElement {
   const joinUrl = ride.slug
     ? `${window.location.origin}/${ride.slug}`
     : `${window.location.origin}/?ride=${ride.id}`; // pre-slug rides (see Ride type's docs), old-style link still works
@@ -322,6 +348,7 @@ function buildRideListItem(ride: Ride, adminUserId: string, onChanged: () => voi
       try {
         await startRide(ride.id);
         startButton.textContent = "Started";
+        refreshDashboardCards(); // starting a ride changes the "active rides" count
       } catch (err) {
         showItemError(err);
         startButton.disabled = false; // let them retry if it failed
@@ -339,6 +366,7 @@ function buildRideListItem(ride: Ride, adminUserId: string, onChanged: () => voi
       try {
         await endRide(ride.id);
         endButton.textContent = "Ended";
+        refreshDashboardCards(); // ending a ride changes both dashboard counts
       } catch (err) {
         showItemError(err);
         endButton.disabled = false; // let them retry if it failed
@@ -360,9 +388,28 @@ function buildRideListItem(ride: Ride, adminUserId: string, onChanged: () => voi
     duplicateButton.disabled = true;
     duplicateButton.textContent = "Duplicating…";
     try {
-      const [route, newRide] = await Promise.all([fetchRouteForRide(ride.id), createRide(`${ride.name} (copy)`, adminUserId)]);
-      if (route?.geojson && route.source !== "none") await createRoute(newRide.id, route.geojson, route.source);
-      onChanged();
+      // Create the new ride FIRST and show it immediately (found in
+      // review: running this concurrently with fetchRouteForRide via
+      // Promise.all meant a route-fetch failure after the ride insert
+      // had already succeeded left a real, invisible orphaned ride in
+      // the database, only discoverable by inspecting it directly, no
+      // onChanged() call ever ran since the whole Promise.all rejected).
+      const newRide = await createRide(`${ride.name} (copy)`, adminUserId);
+      onChanged(newRide);
+      duplicateButton.disabled = false;
+      duplicateButton.textContent = "Duplicate";
+
+      // Copying the route is a separate, best-effort step now: if it
+      // fails, the ride still exists and is already visible, this just
+      // reports the partial failure instead of hiding the ride too.
+      try {
+        const route = await fetchRouteForRide(ride.id);
+        if (route?.geojson && route.source !== "none") await createRoute(newRide.id, route.geojson, route.source);
+      } catch (routeErr) {
+        showItemError(
+          `Ride duplicated, but couldn't copy its route: ${routeErr instanceof Error ? routeErr.message : String(routeErr)}`,
+        );
+      }
     } catch (err) {
       showItemError(err);
       duplicateButton.disabled = false;
@@ -719,6 +766,7 @@ function renderStartRideButton(container: HTMLElement, rideId: string): void {
       // already does this.
       button.textContent = "Started";
       successEl.textContent = "Ride started. Riders can now join using the link/QR code above.";
+      refreshDashboardCards(); // starting a ride changes the "active rides" count
     } catch (err) {
       errorEl.textContent = err instanceof Error ? err.message : String(err);
       button.disabled = false; // let them retry if it failed
@@ -754,6 +802,7 @@ function renderEndRideButton(container: HTMLElement, rideId: string): void {
     try {
       await endRide(rideId);
       successEl.textContent = "Ride ended. Riders' apps will stop sharing location on their next check-in.";
+      refreshDashboardCards(); // ending a ride changes both dashboard counts
     } catch (err) {
       errorEl.textContent = err instanceof Error ? err.message : String(err);
       button.disabled = false; // let them retry if it failed
