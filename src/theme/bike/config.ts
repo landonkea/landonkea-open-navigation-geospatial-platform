@@ -62,6 +62,13 @@ export type EventTheme = {
   // Chosen for contrast against both the satellite/street basemaps and
   // this app's own orange brand palette, not just any CSS color name.
   riderColors: string[];
+  // Shown on the rider-facing "Emergency Info" card (see
+  // setUpEmergencyInfoButton() in main.ts), alongside the nearest
+  // hospital to the rider's current position (looked up live via
+  // OpenStreetMap's Overpass API, not stored here, that's a function
+  // of where the rider is, not a fixed theme value). Null skips the
+  // "organizer contact" line, the nearest-hospital lookup still shows.
+  emergencyContactInfo: string | null;
 };
 
 // The actual bike/bikeMesa theme values, this is the one export other
@@ -103,4 +110,9 @@ export const bikeTheme: EventTheme = {
   unitSystem: "imperial", // bikeMesa is a US audience
 
   riderColors: ["#2196f3", "#e91e63", "#9c27b0", "#00bcd4", "#8bc34a", "#ffeb3b", "#795548"],
+
+  // Placeholder, not a real bikeMesa organizer contact (none provided
+  // yet). Swap for a real name/phone number whenever one's ready, same
+  // as logoUrl above.
+  emergencyContactInfo: "Ride organizer: see event listing for contact info",
 };

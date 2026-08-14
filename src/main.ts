@@ -13,6 +13,7 @@ import { startPolling, type PollResult } from "./core/sync";
 import { distanceMeters, signalStatus, staleOpacity, type SignalStatus } from "./core/geo";
 import { formatDistance, formatSpeed, formatTemperatureC } from "./core/units";
 import { copyToClipboardWithFeedback } from "./core/clipboard";
+import { fetchNearestHospital } from "./core/nearbyHospital";
 import type { LngLat } from "./theme/bike/config";
 import { detectLocationGuidance } from "./core/locationHelp";
 import { keepWakeLockAlive, releaseWakeLock } from "./core/wakeLock";
@@ -114,6 +115,13 @@ function applyBaseStyles(): void {
     #share-button { position: absolute; top: 12px; right: 12px; z-index: 10; background: rgba(255,248,225,0.9); border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
     #feedback-button { position: absolute; top: 56px; right: 12px; z-index: 10; background: rgba(255,248,225,0.9); border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
     #leave-ride-button { position: absolute; top: 100px; right: 12px; z-index: 10; background: rgba(255,248,225,0.9); border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
+    #emergency-info-button { position: absolute; top: 144px; right: 12px; z-index: 10; background: rgba(198,40,40,0.9); color: white; border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
+    #emergency-info { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
+    #emergency-info .card { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-radius: 10px; padding: 24px; max-width: 360px; width: 90%; }
+    #emergency-info h2 { margin-top: 0; color: #c62828; }
+    #emergency-info .disclaimer { font-size: 12px; color: #777; margin-top: 16px; }
+    #emergency-info button.close-btn { padding: 10px 16px; font-size: 15px; background: rgba(255,243,224,0.9); color: #7a4a00; border: none; border-radius: 6px; cursor: pointer; margin-top: 12px; }
+    #checkpoint-toast { position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%); z-index: 25; background: rgba(46,125,50,0.92); color: white; padding: 10px 18px; border-radius: 20px; font-size: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
     #feedback-form { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
     #feedback-form .card { background: rgba(255, 255, 255, 0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-radius: 10px; padding: 24px; max-width: 360px; width: 90%; }
     #feedback-form textarea { width: 100%; box-sizing: border-box; padding: 10px; font-size: 15px; border-radius: 6px; border: 1px solid #ffcc80; margin: 10px 0; font-family: inherit; resize: vertical; background: rgba(255, 255, 255, 0.6); }
@@ -655,6 +663,101 @@ function setUpFeedbackButton(rideId: string): void {
  *   leaving and throw if it fails (the button re-enables itself then,
  *   letting someone retry rather than being stuck).
  */
+/**
+ * Renders an "Emergency Info" button. On click, requests one fresh GPS
+ * reading (independent of the regular poll loop, works even as a
+ * spectator who never broadcasts a position) and shows the theme's
+ * organizer contact plus the nearest hospital found near that
+ * position (see fetchNearestHospital()). Informational only, says so
+ * explicitly, never a substitute for calling real emergency services.
+ */
+function setUpEmergencyInfoButton(): void {
+  const button = document.createElement("button");
+  button.id = "emergency-info-button";
+  button.textContent = "Emergency Info";
+  document.body.appendChild(button);
+
+  button.addEventListener("click", () => {
+    const overlay = document.createElement("div");
+    overlay.id = "emergency-info";
+    overlay.innerHTML = `
+      <div class="card">
+        <h2>Emergency Info</h2>
+        ${bikeTheme.emergencyContactInfo ? `<p>${bikeTheme.emergencyContactInfo}</p>` : ""}
+        <p class="nearest-hospital">Finding nearest hospital…</p>
+        <p class="disclaimer">In a real emergency, call your local emergency number first. This is informational only, not a substitute for that.</p>
+        <button class="close-btn">Close</button>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    overlay.querySelector(".close-btn")!.addEventListener("click", () => overlay.remove());
+
+    const hospitalEl = overlay.querySelector(".nearest-hospital") as HTMLParagraphElement;
+    if (!("geolocation" in navigator)) {
+      hospitalEl.textContent = "Can't look up nearby hospitals, this browser doesn't support location.";
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const hospital = await fetchNearestHospital(position.coords.latitude, position.coords.longitude);
+        hospitalEl.textContent = hospital
+          ? `Nearest hospital: ${hospital.name} (${formatDistance(hospital.distanceMeters, bikeTheme.unitSystem)} away)`
+          : "Couldn't find a nearby hospital, check a maps app directly.";
+      },
+      () => {
+        hospitalEl.textContent = "Couldn't get your location to look up nearby hospitals.";
+      },
+      { timeout: 10_000 },
+    );
+  });
+}
+
+// How close (in meters) counts as "reached" a named waypoint for the
+// checkpoint toast, same bar setUpFinishCelebration() uses for the
+// final one, loose enough that real GPS noise near a checkpoint
+// doesn't prevent it from ever firing.
+const CHECKPOINT_PROXIMITY_METERS = 40;
+
+/**
+ * Shows a brief toast the first time a rider's position comes within
+ * CHECKPOINT_PROXIMITY_METERS of each NAMED waypoint on the route
+ * (rest stops, regroup points, etc., see core/gpx.ts's waypoint
+ * parsing), not just the final one (see setUpFinishCelebration()'s
+ * separate, more celebratory handling of that specific case). Each
+ * waypoint fires at most once per page load.
+ *
+ * @returns an update function to call with the rider's own current
+ *   {lat, lng} on every poll (null if no fix yet).
+ */
+function setUpCheckpointProximity(
+  waypoints: { lat: number; lng: number; name: string }[],
+): (own: { lat: number; lng: number } | null) => void {
+  const alreadyToasted = new Set<number>(); // indexes into `waypoints`
+
+  function showToast(name: string): void {
+    const toast = document.createElement("div");
+    toast.id = "checkpoint-toast";
+    toast.textContent = `Near: ${name}`;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 4000);
+  }
+
+  return (own) => {
+    if (!own) return;
+    waypoints.forEach((waypoint, index) => {
+      if (alreadyToasted.has(index)) return;
+      const distance = distanceMeters(
+        { lat: own.lat, lng: own.lng, accuracyM: 0, timestampMs: 0 },
+        { lat: waypoint.lat, lng: waypoint.lng, accuracyM: 0, timestampMs: 0 },
+      );
+      if (distance <= CHECKPOINT_PROXIMITY_METERS) {
+        alreadyToasted.add(index);
+        showToast(waypoint.name);
+      }
+    });
+  };
+}
+
 function setUpLeaveRideButton(onLeave: () => Promise<void>): void {
   const button = document.createElement("button");
   button.id = "leave-ride-button";
@@ -821,6 +924,24 @@ function findFinalWaypoint(routeGeoJSON: GeoJSON.FeatureCollection | null | unde
   const last = waypoints[waypoints.length - 1];
   const [lng, lat] = last.geometry.coordinates;
   return { lat, lng };
+}
+
+/**
+ * Finds every NAMED waypoint in a route's GeoJSON, for
+ * setUpCheckpointProximity()'s per-waypoint toast. Unnamed points
+ * (a plain click-to-draw route line with no waypoints marked) are
+ * skipped, there's nothing meaningful to show a toast about.
+ */
+function findNamedWaypoints(
+  routeGeoJSON: GeoJSON.FeatureCollection | null | undefined,
+): { lat: number; lng: number; name: string }[] {
+  if (!routeGeoJSON) return [];
+  return routeGeoJSON.features
+    .filter(
+      (f): f is GeoJSON.Feature<GeoJSON.Point> => f.properties?.kind === "waypoint" && f.geometry.type === "Point",
+    )
+    .filter((f) => typeof f.properties?.name === "string" && f.properties.name.length > 0)
+    .map((f) => ({ lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], name: f.properties!.name as string }));
 }
 
 // How close (in meters) counts as "reached" the final waypoint, loose
@@ -1010,6 +1131,7 @@ async function main(): Promise<void> {
   const rideId = ride.id; // the real internal uuid, used for every call from here on, the slug's only job was finding this
   setUpShareButton(ride.name); // build prompt's "social sharing links", native share sheet, no per-platform links needed
   setUpFeedbackButton(rideId); // in-app replacement for the originally-planned external feedback form
+  setUpEmergencyInfoButton(); // works for both riders and spectators, doesn't depend on the route below
 
   // Draw the ride's planned route, if it has one uploaded (a "no
   // fixed route" ride, per the build prompt, is valid too, in which
@@ -1017,6 +1139,7 @@ async function main(): Promise<void> {
   const route = await fetchRouteForRide(rideId);
   if (route?.geojson) setRouteLayer(map, route.geojson);
   const updateFinishCelebration = setUpFinishCelebration(findFinalWaypoint(route?.geojson));
+  const updateCheckpointProximity = setUpCheckpointProximity(findNamedWaypoints(route?.geojson));
 
   const banner = document.createElement("div");
   banner.id = "join-banner";
@@ -1110,7 +1233,9 @@ async function main(): Promise<void> {
       infoPanel.updateOwnStats(ownStats);
 
       const own = participants.find((p) => p.id === participant.id);
-      updateFinishCelebration(own?.lat !== undefined && own?.lat !== null && own.lng !== null ? { lat: own.lat, lng: own.lng } : null);
+      const ownPosition = own?.lat !== undefined && own?.lat !== null && own.lng !== null ? { lat: own.lat, lng: own.lng } : null;
+      updateFinishCelebration(ownPosition);
+      updateCheckpointProximity(ownPosition);
     };
 
     const onRideEnded = () => {
