@@ -9,7 +9,7 @@ import type { Map as MapLibreMap } from "maplibre-gl"; // just the type, for set
 import { createMap, setParticipantLayer, setMapView, setRouteLayer, type MapViewId, type ParticipantFeature } from "./core/map";
 import { bikeTheme } from "./theme/bike/config";
 import { joinAsRider, joinAsSpectator, retryLocationShare, type JoinResult, type SpectatorReason } from "./core/join";
-import { startPolling } from "./core/sync";
+import { startPolling, type PollResult } from "./core/sync";
 import { distanceMeters, signalStatus, staleOpacity, type SignalStatus } from "./core/geo";
 import { formatDistance, formatSpeed, formatTemperatureC } from "./core/units";
 import type { LngLat } from "./theme/bike/config";
@@ -69,6 +69,12 @@ function applyBaseStyles(): void {
     #tag-picker button { display: block; width: 100%; padding: 14px; margin: 8px 0; font-size: 16px; border-radius: 6px; border: none; cursor: pointer; }
     #tag-picker .ride-btn { background: linear-gradient(135deg, rgba(255,179,71,0.9), rgba(255,126,31,0.9)); color: white; }
     #tag-picker .watch-btn { background: rgba(255,243,224,0.9); color: #7a4a00; }
+    #color-picker { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
+    #color-picker .card { background: rgba(255, 255, 255, 0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-radius: 10px; padding: 28px; max-width: 360px; width: 90%; text-align: center; }
+    #color-picker h2 { margin-top: 0; }
+    #color-picker .swatches { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin: 16px 0; }
+    #color-picker .swatch { width: 40px; height: 40px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.8); cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+    #color-picker .skip-btn { padding: 10px 16px; font-size: 14px; background: rgba(255,243,224,0.9); color: #7a4a00; border: none; border-radius: 6px; cursor: pointer; }
     #location-help { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
     #location-help .card { background: rgba(255, 255, 255, 0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-radius: 10px; padding: 24px; max-width: 380px; }
     #location-help ol { padding-left: 20px; }
@@ -107,6 +113,8 @@ function applyBaseStyles(): void {
     #feedback-form button { padding: 10px 16px; font-size: 15px; border: none; border-radius: 6px; cursor: pointer; margin-right: 8px; }
     #feedback-form .submit-btn { background: linear-gradient(135deg, rgba(255,179,71,0.9), rgba(255,126,31,0.9)); color: white; }
     #feedback-form .cancel-btn { background: rgba(255,243,224,0.9); color: #7a4a00; }
+    .confetti-piece { position: fixed; top: -10px; width: 8px; height: 14px; z-index: 30; pointer-events: none; animation: confetti-fall linear forwards; }
+    @keyframes confetti-fall { to { transform: translateY(105vh) rotate(720deg); } }
   `;
   document.head.appendChild(layoutStyle);
 }
@@ -215,7 +223,7 @@ function toParticipantFeatures(participants: RideParticipant[]): ParticipantFeat
     features.push({
       type: "Feature",
       geometry: { type: "Point", coordinates: [participant.lng, participant.lat] },
-      properties: { status, id: participant.id, tag: participant.tag, opacity },
+      properties: { status, id: participant.id, tag: participant.tag, opacity, color: participant.color },
     });
   }
 
@@ -333,6 +341,47 @@ function showTagPicker(): Promise<string | null> {
       button.addEventListener("click", () => {
         overlay.remove();
         resolve(button.dataset.tagId ?? null);
+      });
+    });
+  });
+}
+
+/**
+ * Shows an optional color-swatch picker right after showTagPicker(),
+ * for someone who chose "I'm riding" (spectators never appear as a
+ * map dot, so there's nothing for their color choice to apply to,
+ * this screen is skipped entirely for them, see main()'s call site).
+ * Lets a rider spot their own dot instantly on a crowded map, see
+ * map.ts's docs on why this becomes a stroke ring, not the dot's fill.
+ *
+ * @returns a promise resolving to the chosen hex color, or null for
+ *   "no preference" (the common case, this is entirely optional).
+ */
+function showColorPicker(): Promise<string | null> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.id = "color-picker";
+    overlay.innerHTML = `
+      <div class="card">
+        <h2>Pick a color for your dot? (optional)</h2>
+        <div class="swatches">
+          ${bikeTheme.riderColors
+            .map((color) => `<button class="swatch" data-color="${color}" style="background:${color};"></button>`)
+            .join("")}
+        </div>
+        <button class="skip-btn" id="color-skip">No preference</button>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    document.getElementById("color-skip")!.addEventListener("click", () => {
+      overlay.remove();
+      resolve(null);
+    });
+    overlay.querySelectorAll<HTMLButtonElement>("button[data-color]").forEach((button) => {
+      button.addEventListener("click", () => {
+        overlay.remove();
+        resolve(button.dataset.color ?? null);
       });
     });
   });
@@ -628,21 +677,34 @@ function setUpLeaveRideButton(onLeave: () => Promise<void>): void {
 function setUpInfoPanel(): {
   setWeather: (text: string) => void;
   updateNearestRider: (participants: RideParticipant[], ownParticipantId: string) => void;
+  updateOwnStats: (stats: PollResult["ownStats"]) => void;
 } {
   const panel = document.createElement("div");
   panel.id = "info-panel";
   const weatherLine = document.createElement("div");
   const nearestLine = document.createElement("div");
-  panel.append(weatherLine, nearestLine);
+  const statsLine = document.createElement("div");
+  panel.append(weatherLine, nearestLine, statsLine);
   document.body.appendChild(panel);
 
   function showIfAnyContent(): void {
-    panel.style.display = weatherLine.textContent || nearestLine.textContent ? "block" : "none";
+    panel.style.display =
+      weatherLine.textContent || nearestLine.textContent || statsLine.textContent ? "block" : "none";
   }
 
   return {
     setWeather(text: string) {
       weatherLine.textContent = text;
+      showIfAnyContent();
+    },
+    updateOwnStats(stats: PollResult["ownStats"]) {
+      if (!stats || stats.totalDistanceMeters === 0) {
+        statsLine.textContent = "";
+      } else {
+        const distanceStr = formatDistance(stats.totalDistanceMeters, bikeTheme.unitSystem);
+        const paceStr = stats.currentSpeedMps !== null ? `, ${formatSpeed(stats.currentSpeedMps, bikeTheme.unitSystem)}` : "";
+        statsLine.textContent = `You: ${distanceStr}${paceStr}`;
+      }
       showIfAnyContent();
     },
     updateNearestRider(participants: RideParticipant[], ownParticipantId: string) {
@@ -702,6 +764,81 @@ async function fetchWeatherBadgeText(center: LngLat): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+// Brand palette pieces, matching the sunburst-orange/light-yellow
+// theme rather than generic rainbow confetti, so the celebration still
+// reads as part of this app rather than a stock effect.
+const CONFETTI_COLORS = ["#ff7e1f", "#ffb347", "#ffca28", "#fff8e1", "#2e7d32"];
+
+/**
+ * A short, one-time celebratory burst (build prompt-adjacent "delight"
+ * touch, not a functional requirement): ~50 small pieces fall from the
+ * top of the screen with a random horizontal position, fall speed, and
+ * rotation, then remove themselves. Pure CSS animation (see the
+ * .confetti-piece/@keyframes rules in applyBaseStyles() above), no
+ * canvas/animation library needed for something this simple.
+ */
+function triggerConfetti(): void {
+  for (let i = 0; i < 50; i++) {
+    const piece = document.createElement("div");
+    piece.className = "confetti-piece";
+    piece.style.left = `${Math.random() * 100}vw`;
+    piece.style.backgroundColor = CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)];
+    piece.style.animationDuration = `${1.8 + Math.random() * 1.2}s`;
+    piece.style.animationDelay = `${Math.random() * 0.4}s`;
+    document.body.appendChild(piece);
+    piece.addEventListener("animationend", () => piece.remove());
+  }
+}
+
+/**
+ * Finds the last named waypoint in a route's GeoJSON (e.g. a finish
+ * line or final rest stop), the reference point setUpFinishCelebration()
+ * checks a rider's live position against. Returns null for a route
+ * with no waypoints at all (a GPX file that's just a track line, or no
+ * route uploaded), in which case the celebration feature simply never
+ * fires for that ride, not an error.
+ */
+function findFinalWaypoint(routeGeoJSON: GeoJSON.FeatureCollection | null | undefined): { lat: number; lng: number } | null {
+  if (!routeGeoJSON) return null;
+  const waypoints = routeGeoJSON.features.filter(
+    (f): f is GeoJSON.Feature<GeoJSON.Point> => f.properties?.kind === "waypoint" && f.geometry.type === "Point",
+  );
+  if (waypoints.length === 0) return null;
+  const last = waypoints[waypoints.length - 1];
+  const [lng, lat] = last.geometry.coordinates;
+  return { lat, lng };
+}
+
+// How close (in meters) counts as "reached" the final waypoint, loose
+// enough that real GPS noise near the finish doesn't prevent it from
+// ever firing, tight enough that it doesn't fire from across town.
+const FINISH_PROXIMITY_METERS = 40;
+
+/**
+ * Watches a rider's own polled position against the route's final
+ * waypoint (see findFinalWaypoint()) and fires triggerConfetti() once,
+ * the first time they come within FINISH_PROXIMITY_METERS. A no-op for
+ * every call after the first (celebratedRef guards it) and for a ride
+ * with no route/final waypoint at all.
+ *
+ * @returns an update function to call with the rider's own current
+ *   {lat, lng} on every poll (null if no fix yet).
+ */
+function setUpFinishCelebration(finalWaypoint: { lat: number; lng: number } | null): (own: { lat: number; lng: number } | null) => void {
+  let celebrated = false;
+  return (own) => {
+    if (celebrated || !finalWaypoint || !own) return;
+    const distance = distanceMeters(
+      { lat: own.lat, lng: own.lng, accuracyM: 0, timestampMs: 0 },
+      { lat: finalWaypoint.lat, lng: finalWaypoint.lng, accuracyM: 0, timestampMs: 0 },
+    );
+    if (distance <= FINISH_PROXIMITY_METERS) {
+      celebrated = true;
+      triggerConfetti();
+    }
+  };
 }
 
 function setUpRosterView(): (participants: RideParticipant[]) => void {
@@ -867,6 +1004,7 @@ async function main(): Promise<void> {
   // case this is just null and setRouteLayer() draws nothing).
   const route = await fetchRouteForRide(rideId);
   if (route?.geojson) setRouteLayer(map, route.geojson);
+  const updateFinishCelebration = setUpFinishCelebration(findFinalWaypoint(route?.geojson));
 
   const banner = document.createElement("div");
   banner.id = "join-banner";
@@ -876,12 +1014,15 @@ async function main(): Promise<void> {
   try {
     const choice = await showJoinChoice(); // the explicit up-front choice, see its docstring above
     const tag = await showTagPicker(); // optional self-select role, see its docstring above
+    // Only riders ever appear as a map dot, a spectator's color choice
+    // would have nothing to apply to, so this screen is skipped for them.
+    const color = choice === "ride" ? await showColorPicker() : null;
 
     let result: JoinResult;
     if (choice === "watch") {
-      result = await joinAsSpectator(rideId, tag); // no location permission ever requested
+      result = await joinAsSpectator(rideId, tag, color); // no location permission ever requested
     } else {
-      result = await joinAsRider(rideId, tag); // requests permission, only falls back to spectator on real failure
+      result = await joinAsRider(rideId, tag, color); // requests permission, only falls back to spectator on real failure
       // A real failure (not a deliberate choice) gets the detailed,
       // device-specific recovery screen instead of just a banner
       // message, then one retry attempt inline before falling back
@@ -944,7 +1085,7 @@ async function main(): Promise<void> {
       banner.appendChild(retryButton);
     };
 
-    const onPollUpdate = (participants: RideParticipant[]) => {
+    const onPollUpdate = (participants: RideParticipant[], ownStats: PollResult["ownStats"]) => {
       // Called after every successful poll (see sync.ts), redraw the
       // map with the freshest data.
       latestParticipantFeatures = toParticipantFeatures(participants); // remembered for the view-switcher, see above
@@ -954,6 +1095,10 @@ async function main(): Promise<void> {
       });
       updateRoster(participants); // same poll data, no extra network request, see setUpRosterView()'s docstring
       infoPanel.updateNearestRider(participants, participant.id); // same poll data too, see setUpInfoPanel()'s docstring
+      infoPanel.updateOwnStats(ownStats);
+
+      const own = participants.find((p) => p.id === participant.id);
+      updateFinishCelebration(own?.lat !== undefined && own?.lat !== null && own.lng !== null ? { lat: own.lat, lng: own.lng } : null);
     };
 
     const onRideEnded = () => {

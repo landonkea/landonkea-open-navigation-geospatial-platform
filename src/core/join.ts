@@ -97,11 +97,17 @@ export type JoinResult = {
  * @param tag - the self-selected tag (see showTagPicker() in main.ts),
  *   or null for none, e.g. a spectator documenting the ride can still
  *   tag themselves "Photographer/media" without ever sharing location.
+ * @param color - the self-selected map-dot color (see showColorPicker()
+ *   in main.ts), or null for no preference.
  */
-export async function joinAsSpectator(rideId: string, tag: string | null = null): Promise<JoinResult> {
+export async function joinAsSpectator(
+  rideId: string,
+  tag: string | null = null,
+  color: string | null = null,
+): Promise<JoinResult> {
   const participantId = getOrCreateParticipantId(rideId);
   const deviceHash = await computeDeviceHash();
-  const participant = await joinRide(rideId, participantId, true, tag, deviceHash);
+  const participant = await joinRide(rideId, participantId, true, tag, deviceHash, color);
   return { participant, isSpectator: true };
 }
 
@@ -111,16 +117,21 @@ export async function joinAsSpectator(rideId: string, tag: string | null = null)
  * someone who chose "I'm riding" up front.
  *
  * @param tag - see joinAsSpectator()'s docs above, same meaning here.
+ * @param color - see joinAsSpectator()'s docs above, same meaning here.
  * @returns the join result, including which path was taken, why (if
  *   the location request failed), and the created participant row.
  */
-export async function joinAsRider(rideId: string, tag: string | null = null): Promise<JoinResult> {
+export async function joinAsRider(
+  rideId: string,
+  tag: string | null = null,
+  color: string | null = null,
+): Promise<JoinResult> {
   const outcome = await requestLocationPermission(); // ask, and wait for the real answer
   const isSpectator = !outcome.granted;
 
   const participantId = getOrCreateParticipantId(rideId); // stable id for this device+ride
   const deviceHash = await computeDeviceHash();
-  const participant = await joinRide(rideId, participantId, isSpectator, tag, deviceHash); // create the row in Supabase
+  const participant = await joinRide(rideId, participantId, isSpectator, tag, deviceHash, color); // create the row in Supabase
 
   return {
     participant,

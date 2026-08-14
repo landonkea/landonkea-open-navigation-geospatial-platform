@@ -240,8 +240,15 @@ export function setParticipantLayer(
         "#ff7e1f", // fallback (brand orange) if "status" is ever missing
       ],
       "circle-radius": 8,
-      "circle-stroke-width": 2,
-      "circle-stroke-color": "#ffffff",
+      // A rider's own chosen color (see showColorPicker() in main.ts)
+      // rides as the STROKE, not the fill, on purpose: the fill stays
+      // status-driven (green/yellow/red) so at-a-glance signal
+      // readability never changes, personal identification is layered
+      // on top instead of replacing it. coalesce() falls back to plain
+      // white for a rider with no color preference (the common case)
+      // or any feature that predates this property.
+      "circle-stroke-width": ["case", ["has", "color"], 3, 2],
+      "circle-stroke-color": ["coalesce", ["get", "color"], "#ffffff"],
       // Softer visual cue on top of the discrete status color, see
       // geo.ts's staleOpacity(): a dot 91 seconds stale and one 20
       // minutes stale are both "red", but shouldn't look equally

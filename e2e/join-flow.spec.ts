@@ -52,6 +52,17 @@ test("a rider can join a ride through the real join-choice and tag-picker screen
 
     await page.locator("#tag-none").click(); // skip the optional tag, not what this test is about
 
+    // Same reasoning as the tag-picker check above, applied to the
+    // color-picker screen added later: verify it's actually visible
+    // and reasonably sized, not just present in the DOM.
+    const colorPicker = page.locator("#color-picker");
+    await expect(colorPicker).toBeVisible();
+    const colorBox = await colorPicker.boundingBox();
+    expect(colorBox, "color-picker should have a real bounding box, not be collapsed").not.toBeNull();
+    expect(colorBox!.height).toBeGreaterThan(100);
+
+    await page.locator("#color-skip").click(); // skip the optional color, not what this test is about
+
     // A real join actually happened: the banner reflects it, and the
     // database has a real participant row, not just a UI that looks
     // right, mirroring how bug #19 was actually confirmed fixed

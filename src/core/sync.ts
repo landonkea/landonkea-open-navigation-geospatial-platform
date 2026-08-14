@@ -44,6 +44,17 @@ let lastBroadcastPoint: GpsPoint | null = null;
 // HISTORY_SAMPLE_INTERVAL_SECONDS's docs in policy.ts for why.
 let lastHistorySampleAtMs: number | null = null;
 
+// Running total of real movement this device has covered this ride,
+// for the rider-facing "distance so far" stat (see main.ts's info
+// panel). Only accumulates on polls countsAsMovement() calls real
+// movement, not GPS jitter while stationary, same distinction
+// lastBroadcastPoint's docs above already draw for the map dot, this
+// is the same idea applied to a running total instead of a single
+// point. Reset per page load (a full page reload starting a fresh
+// count is an accepted tradeoff, not worth persisting across reloads
+// for what's a nice-to-have stat, not a source of truth).
+let totalMovementMeters = 0;
+
 // Never wait longer than this between retries, even after many
 // consecutive failures, a real cap on how degraded things get.
 const MAX_BACKOFF_SECONDS = 300; // 5 minutes
@@ -87,6 +98,10 @@ function getCurrentPosition(): Promise<GeolocationPosition> {
 export type PollResult = {
   participants: RideParticipant[];
   rideStatus: RideStatus | null; // checked every poll so an admin ending the ride is noticed quickly, see startPolling()
+  // This device's own live stats, null for a spectator (never reads
+  // GPS) or before the first real reading lands. See totalMovementMeters'
+  // docs above for what counts as "movement" here.
+  ownStats: { totalDistanceMeters: number; currentSpeedMps: number | null } | null;
 };
 
 /**
@@ -108,6 +123,8 @@ export async function pollOnce(
   rideId: string,
   isSpectator: boolean,
 ): Promise<PollResult> {
+  let currentSpeedMps: number | null = null; // set below if a real reading lands, read again after the try/catch for ownStats
+
   if (!isSpectator) {
     try {
       const rawPosition = await getCurrentPosition(); // ask the device for a fresh GPS fix
@@ -131,6 +148,7 @@ export async function pollOnce(
           ? distanceMeters(previousPoint, currentPoint) /
             ((currentPoint.timestampMs - previousPoint.timestampMs) / 1000)
           : null;
+      currentSpeedMps = speedMps;
 
       // Whether this counts as "real movement" or just GPS jitter from
       // standing still, drives whether last_moved_at bumps forward
@@ -138,6 +156,7 @@ export async function pollOnce(
       // First-ever poll (no previousPoint yet) counts as movement, so
       // a rider who just joined isn't immediately flagged stuck.
       const moved = !previousPoint || countsAsMovement(distanceMeters(previousPoint, currentPoint));
+      if (previousPoint && moved) totalMovementMeters += distanceMeters(previousPoint, currentPoint);
 
       // What actually gets shown on the map/written as this device's
       // position: only updates once a reading is far enough from the
@@ -207,7 +226,8 @@ export async function pollOnce(
     fetchParticipants(rideId), // always fetch, spectators included, everyone needs to see the map
     fetchRideStatus(rideId), // cheap, status-only query, see fetchRideStatus()'s docstring for why
   ]);
-  return { participants, rideStatus };
+  const ownStats = isSpectator ? null : { totalDistanceMeters: totalMovementMeters, currentSpeedMps };
+  return { participants, rideStatus, ownStats };
 }
 
 /**
@@ -228,6 +248,8 @@ export async function pollOnce(
  *   build prompt's "Update interval: user-selectable" section.
  * @param onUpdate - called with the fresh participant list after
  *   every successful poll, the caller uses this to redraw the map.
+ *   The second argument is this device's own live stats (null for a
+ *   spectator), see PollResult's ownStats docs.
  * @param onOnlineStatusChange - optional, called whenever the
  *   device's online/offline state changes, so the caller can show a
  *   plain "you're offline" indicator (see main.ts).
@@ -243,7 +265,7 @@ export function startPolling(
   rideId: string,
   isSpectator: boolean,
   intervalSeconds: number,
-  onUpdate: (participants: RideParticipant[]) => void,
+  onUpdate: (participants: RideParticipant[], ownStats: PollResult["ownStats"]) => void,
   onOnlineStatusChange?: OnlineStatusCallback,
   onRideEnded?: () => void,
 ): () => void {
@@ -255,8 +277,8 @@ export function startPolling(
     if (stopped) return; // the loop was stopped while a previous poll was still in flight, bail out
     scheduledTimer = null; // this poll is the one that was scheduled, it's no longer "pending"
     try {
-      const { participants, rideStatus } = await pollOnce(participantId, rideId, isSpectator);
-      onUpdate(participants); // hand the fresh data to the caller (e.g. to redraw the map)
+      const { participants, rideStatus, ownStats } = await pollOnce(participantId, rideId, isSpectator);
+      onUpdate(participants, ownStats); // hand the fresh data to the caller (e.g. to redraw the map)
       consecutiveFailures = 0; // a real success, reset the backoff back to the normal interval
 
       if (rideStatus === "ended" || rideStatus === null) {

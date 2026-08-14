@@ -22,6 +22,7 @@ import {
 async function joinAsRider(page: import("@playwright/test").Page): Promise<void> {
   await page.locator("#choice-ride").click();
   await page.locator("#tag-none").click();
+  await page.locator("#color-skip").click();
   await expect(page.locator("#join-banner")).toHaveText("Joined, sharing your live location.", { timeout: 10_000 });
 }
 

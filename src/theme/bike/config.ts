@@ -56,6 +56,12 @@ export type EventTheme = {
   // since a given client's whole audience typically shares one
   // convention (this project's first client, bikeMesa, is a US group).
   unitSystem: "imperial" | "metric";
+  // Curated hex colors a rider can pick for their own map dot's stroke
+  // ring (see showColorPicker() in main.ts and src/core/map.ts), NOT
+  // the dot's fill, which stays status-driven (green/yellow/red).
+  // Chosen for contrast against both the satellite/street basemaps and
+  // this app's own orange brand palette, not just any CSS color name.
+  riderColors: string[];
 };
 
 // The actual bike/bikeMesa theme values, this is the one export other
@@ -95,4 +101,6 @@ export const bikeTheme: EventTheme = {
   logoUrl: "/logo-placeholder.svg",
 
   unitSystem: "imperial", // bikeMesa is a US audience
+
+  riderColors: ["#2196f3", "#e91e63", "#9c27b0", "#00bcd4", "#8bc34a", "#ffeb3b", "#795548"],
 };

@@ -107,6 +107,12 @@ export type RideParticipant = {
   // never used for identity/auth/RLS. Null for any row written before
   // this column existed.
   device_hash: string | null;
+  // Optional rider-chosen color (a hex string, e.g. "#2196f3"), shown
+  // as a stroke ring around their map dot, not the dot's fill (see
+  // src/core/map.ts), display-only, never used for identity/auth/RLS.
+  // Null for any row written before this column existed, or a rider
+  // who didn't pick one.
+  color: string | null;
 };
 
 // ── Ride functions ──────────────────────────────────────────────────
@@ -238,6 +244,9 @@ export async function fetchAllRides(limit = 50): Promise<Ride[]> {
  *   explicitly self-select, this is whatever the person picked on
  *   their own join screen (see showTagPicker() in main.ts), not
  *   anything assigned to them by an admin.
+ * @param color - a hex string the rider picked for their own map dot's
+ *   stroke ring (see showColorPicker() in main.ts), or null for no
+ *   preference.
  * @returns the participant row, either freshly created or the
  *   existing one for this device+ride.
  */
@@ -247,6 +256,7 @@ export async function joinRide(
   isSpectator: boolean,
   tag: string | null = null,
   deviceHash: string | null = null,
+  color: string | null = null,
 ): Promise<RideParticipant> {
   // upsert, not insert: participantId is stable per device+ride (see
   // participantId.ts), so a page reload mid-ride reuses the same id.
@@ -256,7 +266,7 @@ export async function joinRide(
   // of erroring.
   const { data, error } = await supabase
     .from("ride_participants")
-    .upsert({ id: participantId, ride_id: rideId, is_spectator: isSpectator, tag, device_hash: deviceHash }) // lat/lng start null, filled in by the first position update
+    .upsert({ id: participantId, ride_id: rideId, is_spectator: isSpectator, tag, device_hash: deviceHash, color }) // lat/lng start null, filled in by the first position update
     .select() // return the row, whether it was just created or already existed
     .single(); // expect exactly one row back
 
