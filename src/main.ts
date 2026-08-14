@@ -223,7 +223,19 @@ function toParticipantFeatures(participants: RideParticipant[]): ParticipantFeat
     features.push({
       type: "Feature",
       geometry: { type: "Point", coordinates: [participant.lng, participant.lat] },
-      properties: { status, id: participant.id, tag: participant.tag, opacity, color: participant.color },
+      // "color" is omitted entirely (not set to null) when the rider
+      // has no preference, on purpose: map.ts's stroke-width expression
+      // uses ["has", "color"] to tell "chose a color" apart from "no
+      // preference", which only works if the key's absence actually
+      // means absence (found in review: setting it to null made "has"
+      // always true).
+      properties: {
+        status,
+        id: participant.id,
+        tag: participant.tag,
+        opacity,
+        ...(participant.color ? { color: participant.color } : {}),
+      },
     });
   }
 

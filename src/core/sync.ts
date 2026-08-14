@@ -155,8 +155,20 @@ export async function pollOnce(
       // (see stuckDetection.ts and updateParticipantPosition's docs).
       // First-ever poll (no previousPoint yet) counts as movement, so
       // a rider who just joined isn't immediately flagged stuck.
-      const moved = !previousPoint || countsAsMovement(distanceMeters(previousPoint, currentPoint));
-      if (previousPoint && moved) totalMovementMeters += distanceMeters(previousPoint, currentPoint);
+      const distanceSincePreviousPoint = previousPoint ? distanceMeters(previousPoint, currentPoint) : 0;
+      const moved = !previousPoint || countsAsMovement(distanceSincePreviousPoint);
+      // Deliberately NOT gated on `moved` above: countsAsMovement()'s
+      // 30m threshold is tuned for multi-minute stuck detection, not a
+      // single 15s poll, so a rider under ~2 m/s (walking pace,
+      // stop-and-go traffic) would never cover 30m in one poll and
+      // this running total would silently stay at 0 for them even
+      // while their dot visibly moves on the map. isRealMovement()'s
+      // accuracy-based threshold (the same one lastBroadcastPoint's
+      // own real-vs-noise decision uses, just below) is the correct
+      // bar for "did this position genuinely change."
+      if (previousPoint && isRealMovement(distanceSincePreviousPoint, currentPoint.accuracyM)) {
+        totalMovementMeters += distanceSincePreviousPoint;
+      }
 
       // What actually gets shown on the map/written as this device's
       // position: only updates once a reading is far enough from the

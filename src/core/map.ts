@@ -247,6 +247,15 @@ export function setParticipantLayer(
       // on top instead of replacing it. coalesce() falls back to plain
       // white for a rider with no color preference (the common case)
       // or any feature that predates this property.
+      //
+      // ["has", "color"] only works correctly because
+      // toParticipantFeatures() (main.ts) omits the "color" key
+      // entirely for a rider with no preference, rather than setting
+      // it to null (found in review: setting it to null made "has"
+      // always true, so every rider got the thicker stroke regardless
+      // of an actual choice; MapLibre's expression types also reject a
+      // bare null literal, so comparing against the value directly
+      // isn't a clean option here either, omitting the key is simplest).
       "circle-stroke-width": ["case", ["has", "color"], 3, 2],
       "circle-stroke-color": ["coalesce", ["get", "color"], "#ffffff"],
       // Softer visual cue on top of the discrete status color, see
