@@ -18,13 +18,15 @@ export default {
   },
   build: {
     rollupOptions: {
-      // Two separate pages: the rider-facing map (index.html) and the
-      // admin screen (admin.html). Vite only bundles index.html by
-      // default, this makes it build both for the production `dist/`
-      // output, otherwise admin.html would 404 once deployed.
+      // Three separate pages: the rider-facing map (index.html), the
+      // admin screen (admin.html), and the public status page
+      // (status.html). Vite only bundles index.html by default, this
+      // makes it build all three for the production `dist/` output,
+      // otherwise admin.html/status.html would 404 once deployed.
       input: {
         main: resolve(__dirname, "index.html"),
         admin: resolve(__dirname, "admin.html"),
+        status: resolve(__dirname, "status.html"),
       },
     },
   },

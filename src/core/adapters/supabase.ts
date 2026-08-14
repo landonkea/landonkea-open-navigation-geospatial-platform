@@ -224,6 +224,42 @@ export async function fetchAllRides(limit = 50): Promise<Ride[]> {
   return (data ?? []) as Ride[];
 }
 
+export type StatusSummary = {
+  activeRideCount: number;
+  ridersOnlineCount: number; // non-spectator participants currently in an active ride, across every active ride
+};
+
+/**
+ * Fetches the small, aggregate counts the public /status page (see
+ * src/status.ts) and the admin dashboard's "at a glance" cards show.
+ * Uses `count: "exact", head: true` queries specifically (no row data
+ * returned at all) rather than fetching real rows and counting them
+ * client-side: cheaper, and genuinely more private for a page anyone
+ * can load with no login, a status page has no business pulling real
+ * ride names/ids just to show two numbers.
+ *
+ * A failed query here means Supabase itself is unreachable (paused
+ * project, real outage, etc.), the caller treats a thrown error as
+ * "backend down" for the status page's own reachability indicator,
+ * this function doesn't catch/hide that itself.
+ */
+export async function fetchStatusSummary(): Promise<StatusSummary> {
+  const { count: activeRideCount, error: rideError } = await supabase
+    .from("rides")
+    .select("*", { count: "exact", head: true })
+    .eq("status", "active");
+  if (rideError) throw new Error(`Failed to fetch active ride count: ${rideError.message}`);
+
+  const { count: ridersOnlineCount, error: participantError } = await supabase
+    .from("ride_participants")
+    .select("*, rides!inner(status)", { count: "exact", head: true })
+    .eq("is_spectator", false)
+    .eq("rides.status", "active");
+  if (participantError) throw new Error(`Failed to fetch riders-online count: ${participantError.message}`);
+
+  return { activeRideCount: activeRideCount ?? 0, ridersOnlineCount: ridersOnlineCount ?? 0 };
+}
+
 // ── Participant functions ───────────────────────────────────────────
 
 /**

@@ -21,6 +21,8 @@ import {
   updateParticipantTag,
   leaveRide,
   fetchFeedback,
+  fetchRouteForRide,
+  fetchStatusSummary,
   type Ride,
 } from "./core/adapters/supabase";
 import { parseGpx, parseGpxTrackPoints } from "./core/gpx";
@@ -143,6 +145,7 @@ function renderSignIn(): void {
  */
 function renderCreateRide(adminUserId: string): void {
   root.innerHTML = `
+    <div id="dashboard-cards" style="display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;"></div>
     <h2>Create a ride</h2>
     <form id="create-ride-form">
       <label>Ride name<input type="text" id="ride-name" required placeholder="Saturday Morning Loop" /></label>
@@ -154,13 +157,15 @@ function renderCreateRide(adminUserId: string): void {
     <div id="ride-list"></div>
   `;
 
+  loadAndRenderDashboardCards(document.getElementById("dashboard-cards") as HTMLDivElement);
+
   // Admin-only ride browsing (fetchAllRides()'s docs explain why this
   // is gated here, in the UI layer, rather than at the database
   // level). Loaded once now, and refreshed after creating a new ride
   // below, so a fresh admin session isn't stuck only ever managing the
   // one ride created in it.
   const rideListContainer = document.getElementById("ride-list") as HTMLDivElement;
-  loadAndRenderRideList(rideListContainer);
+  loadAndRenderRideList(rideListContainer, adminUserId);
 
   const form = document.getElementById("create-ride-form") as HTMLFormElement;
   form.addEventListener("submit", async (event) => {
@@ -208,11 +213,36 @@ function renderCreateRide(adminUserId: string): void {
       renderStartRideButton(resultEl, ride.id); // explicit lifecycle control: a ride starts "created", riders can't join until this is clicked
       renderEndRideButton(resultEl, ride.id); // explicit lifecycle control, build prompt's "Ride lifecycle" section
       renderExportButtons(resultEl, ride); // build prompt's "Ride data export" section
-      loadAndRenderRideList(rideListContainer); // refresh so the just-created ride shows up in the list below immediately
+      loadAndRenderRideList(rideListContainer, adminUserId); // refresh so the just-created ride shows up in the list below immediately
+      loadAndRenderDashboardCards(document.getElementById("dashboard-cards") as HTMLDivElement); // a new ride changes the "active rides" count
     } catch (err) {
       errorEl.textContent = err instanceof Error ? err.message : String(err);
     }
   });
+}
+
+/**
+ * Renders the "at a glance" summary cards at the top of the admin
+ * screen (active ride count, riders currently online), the same
+ * aggregate counts the public status page shows (see
+ * fetchStatusSummary()'s docs), just with an admin-facing label.
+ * Best-effort: a failure here shows a small inline error rather than
+ * blocking the rest of the admin screen, this is a nice-to-have
+ * summary, not something the ride-creation flow depends on.
+ */
+async function loadAndRenderDashboardCards(container: HTMLDivElement): Promise<void> {
+  const cardStyle =
+    "background: rgba(255,255,255,0.6); border-radius: 8px; padding: 12px 18px; min-width: 140px;";
+  container.innerHTML = `<div style="${cardStyle}">Loading…</div>`;
+  try {
+    const summary = await fetchStatusSummary();
+    container.innerHTML = `
+      <div style="${cardStyle}"><div style="font-size: 24px; font-weight: bold;">${summary.activeRideCount}</div><div style="font-size: 12px; color: #555;">Active ${bikeTheme.eventWordPlural}</div></div>
+      <div style="${cardStyle}"><div style="font-size: 24px; font-weight: bold;">${summary.ridersOnlineCount}</div><div style="font-size: 12px; color: #555;">${bikeTheme.participantWord}s online</div></div>
+    `;
+  } catch (err) {
+    container.innerHTML = `<p class="error">${escapeHtml(err instanceof Error ? err.message : String(err))}</p>`;
+  }
 }
 
 /**
@@ -222,8 +252,11 @@ function renderCreateRide(adminUserId: string): void {
  * standalone (e.g. right after creating a new ride, to refresh).
  *
  * @param container - where to render the list, replaces its contents.
+ * @param adminUserId - needed for the "Duplicate" action, which
+ *   creates a new ride and so needs a creator id the same way the main
+ *   create-ride form does.
  */
-async function loadAndRenderRideList(container: HTMLDivElement): Promise<void> {
+async function loadAndRenderRideList(container: HTMLDivElement, adminUserId: string): Promise<void> {
   container.innerHTML = "<p>Loading rides…</p>";
   try {
     const rides = await fetchAllRides();
@@ -233,7 +266,7 @@ async function loadAndRenderRideList(container: HTMLDivElement): Promise<void> {
       return;
     }
     for (const ride of rides) {
-      container.appendChild(buildRideListItem(ride));
+      container.appendChild(buildRideListItem(ride, adminUserId, () => loadAndRenderRideList(container, adminUserId)));
     }
   } catch (err) {
     container.innerHTML = `<p class="error">${escapeHtml(err instanceof Error ? err.message : String(err))}</p>`;
@@ -251,8 +284,13 @@ async function loadAndRenderRideList(container: HTMLDivElement): Promise<void> {
  * element the id happened to match first.
  *
  * @param ride - the ride this row represents.
+ * @param adminUserId - needed for the "Duplicate" action below.
+ * @param onChanged - called after an action that changes the list
+ *   itself (currently just "Duplicate", which adds a new row), so the
+ *   caller can refresh. End Ride/Delete Ride update their own row in
+ *   place instead and don't need this.
  */
-function buildRideListItem(ride: Ride): HTMLElement {
+function buildRideListItem(ride: Ride, adminUserId: string, onChanged: () => void): HTMLElement {
   const joinUrl = ride.slug
     ? `${window.location.origin}/${ride.slug}`
     : `${window.location.origin}/?ride=${ride.id}`; // pre-slug rides (see Ride type's docs), old-style link still works
@@ -308,6 +346,30 @@ function buildRideListItem(ride: Ride): HTMLElement {
     });
     actions.appendChild(endButton);
   }
+
+  // Reuses a past ride's route (if it had one) under a new name/link,
+  // real value for a recurring weekly meetup (this project's actual
+  // first client, bikeMesa): no need to re-upload the same GPX file
+  // or re-draw the same route every week. Creates a fresh ride in the
+  // normal "created" state (an admin still has to click "Start Ride"),
+  // never copies participants/history/feedback, those are specific to
+  // the ride that happened, not the route/plan itself.
+  const duplicateButton = document.createElement("button");
+  duplicateButton.textContent = "Duplicate";
+  duplicateButton.addEventListener("click", async () => {
+    duplicateButton.disabled = true;
+    duplicateButton.textContent = "Duplicating…";
+    try {
+      const [route, newRide] = await Promise.all([fetchRouteForRide(ride.id), createRide(`${ride.name} (copy)`, adminUserId)]);
+      if (route?.geojson && route.source !== "none") await createRoute(newRide.id, route.geojson, route.source);
+      onChanged();
+    } catch (err) {
+      showItemError(err);
+      duplicateButton.disabled = false;
+      duplicateButton.textContent = "Duplicate";
+    }
+  });
+  actions.appendChild(duplicateButton);
 
   const safeFileNamePart = ride.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
 
