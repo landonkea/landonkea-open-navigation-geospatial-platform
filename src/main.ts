@@ -12,6 +12,7 @@ import { joinAsRider, joinAsSpectator, retryLocationShare, type JoinResult, type
 import { startPolling, type PollResult } from "./core/sync";
 import { distanceMeters, signalStatus, staleOpacity, type SignalStatus } from "./core/geo";
 import { formatDistance, formatSpeed, formatTemperatureC } from "./core/units";
+import { copyToClipboardWithFeedback } from "./core/clipboard";
 import type { LngLat } from "./theme/bike/config";
 import { detectLocationGuidance } from "./core/locationHelp";
 import { keepWakeLockAlive, releaseWakeLock } from "./core/wakeLock";
@@ -80,7 +81,13 @@ function applyBaseStyles(): void {
     #location-help ol { padding-left: 20px; }
     #location-help li { margin-bottom: 8px; }
     #location-help button { padding: 10px 16px; font-size: 15px; background: linear-gradient(135deg, rgba(255,179,71,0.9), rgba(255,126,31,0.9)); color: white; border: none; border-radius: 6px; cursor: pointer; margin-top: 8px; }
-    #info-panel { position: absolute; bottom: 54px; left: 12px; z-index: 10; background: rgba(255,255,255,0.85); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); padding: 6px 10px; font-size: 12px; color: #333; display: none; }
+    /* bottom: 84px, not a smaller offset, on purpose (found in
+       review): #view-switcher below is two stacked buttons (~64px
+       tall) sitting at bottom: 12px, so its top edge lands around
+       76px up. #info-panel can show up to three lines (weather,
+       nearest rider, own stats), a smaller offset let its text paint
+       directly over the "Map" button once more than one line showed. */
+    #info-panel { position: absolute; bottom: 84px; left: 12px; z-index: 10; background: rgba(255,255,255,0.85); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); padding: 6px 10px; font-size: 12px; color: #333; display: none; }
     #view-switcher { position: absolute; bottom: 12px; left: 12px; z-index: 10; background: rgba(255,255,255,0.85); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); overflow: hidden; }
     #view-switcher button { display: block; width: 90px; padding: 8px; font-size: 13px; border: none; background: transparent; cursor: pointer; }
     #view-switcher button.active { background: linear-gradient(135deg, rgba(255,179,71,0.9), rgba(255,126,31,0.9)); color: white; }
@@ -580,15 +587,7 @@ function setUpShareButton(rideName: string): void {
       }
       return;
     }
-    try {
-      await navigator.clipboard.writeText(url);
-      button.textContent = "Copied!";
-      setTimeout(() => {
-        button.textContent = "Share";
-      }, 2000);
-    } catch (err) {
-      console.error("Clipboard copy failed:", err);
-    }
+    await copyToClipboardWithFeedback(button, url, "Share");
   });
 }
 
@@ -727,25 +726,26 @@ function setUpInfoPanel(): {
         return;
       }
 
-      let nearestMeters: number | null = null;
-      let nearestTag: string | null = null;
+      // Tracked as one object, not two loose variables kept in sync by
+      // hand (found in review): a future field on the winner (e.g. the
+      // rider's id, to support centering the map on them) is an easy
+      // place to introduce a bug by updating one variable but not the
+      // other in some branch.
+      let nearest: { meters: number; tag: string | null } | null = null;
       for (const p of participants) {
         if (p.id === ownParticipantId || p.is_spectator || p.lat === null || p.lng === null) continue;
-        const d = distanceMeters(
+        const meters = distanceMeters(
           { lat: own.lat, lng: own.lng, accuracyM: 0, timestampMs: 0 },
           { lat: p.lat, lng: p.lng, accuracyM: 0, timestampMs: 0 },
         );
-        if (nearestMeters === null || d < nearestMeters) {
-          nearestMeters = d;
-          nearestTag = p.tag;
-        }
+        if (nearest === null || meters < nearest.meters) nearest = { meters, tag: p.tag };
       }
 
-      if (nearestMeters === null) {
+      if (nearest === null) {
         nearestLine.textContent = "";
       } else {
-        const who = nearestTag ? tagLabel(nearestTag) : `another ${bikeTheme.participantWord}`;
-        nearestLine.textContent = `Nearest: ${who}, ${formatDistance(nearestMeters, bikeTheme.unitSystem)} away`;
+        const who = nearest.tag ? tagLabel(nearest.tag) : `another ${bikeTheme.participantWord}`;
+        nearestLine.textContent = `Nearest: ${who}, ${formatDistance(nearest.meters, bikeTheme.unitSystem)} away`;
       }
       showIfAnyContent();
     },

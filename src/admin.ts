@@ -24,6 +24,7 @@ import {
   type Ride,
 } from "./core/adapters/supabase";
 import { parseGpx, parseGpxTrackPoints } from "./core/gpx";
+import { copyToClipboardWithFeedback } from "./core/clipboard";
 import { parseHistoryCsv, parseRouteCsv } from "./core/csvImport";
 import { createMap, setRouteLayer } from "./core/map";
 import { samplesToCsv, samplesToGpx } from "./core/rideExport";
@@ -196,15 +197,7 @@ function renderCreateRide(adminUserId: string): void {
       copyButton.type = "button";
       copyButton.textContent = "Copy Link";
       copyButton.addEventListener("click", async () => {
-        try {
-          await navigator.clipboard.writeText(joinUrl);
-          copyButton.textContent = "Copied!";
-          setTimeout(() => {
-            copyButton.textContent = "Copy Link";
-          }, 2000);
-        } catch (err) {
-          console.error("Clipboard copy failed:", err);
-        }
+        await copyToClipboardWithFeedback(copyButton, joinUrl, "Copy Link");
       });
       resultEl.appendChild(copyButton);
 

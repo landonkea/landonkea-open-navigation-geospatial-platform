@@ -144,6 +144,15 @@ export function signalStatus(
   return "green"; // recent and accurate, the good case
 }
 
+// How long until a stale dot's opacity hits its 0.3 floor. A fixed,
+// independent constant on purpose (found in review): this used to be
+// derived as STALE_AFTER_MS * 4, which silently tied the opacity fade
+// curve to signalStatus()'s red-status cutoff, so tuning one for an
+// unrelated reason (e.g. a faster-moving ride wanting a shorter
+// red-signal threshold) would have quietly changed the other with no
+// comment or test at the change site to flag it.
+const STALE_OPACITY_FLOOR_AFTER_MS = 360_000; // 6 minutes
+
 /**
  * Map-dot opacity (0.3-1) for how stale a position is, a softer visual
  * cue layered on top of the discrete green/yellow/red status: two red
@@ -155,7 +164,6 @@ export function signalStatus(
  */
 export function staleOpacity(lastUpdateTimestampMs: number, nowMs: number): number {
   const ageMs = nowMs - lastUpdateTimestampMs;
-  const fullyFadedAfterMs = STALE_AFTER_MS * 4; // reaches the floor at ~6 minutes stale
-  const fraction = Math.min(Math.max(ageMs / fullyFadedAfterMs, 0), 1);
+  const fraction = Math.min(Math.max(ageMs / STALE_OPACITY_FLOOR_AFTER_MS, 0), 1);
   return 1 - fraction * 0.7; // 1.0 (fresh) down to 0.3 (very stale)
 }
