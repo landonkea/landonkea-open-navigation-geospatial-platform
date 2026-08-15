@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.2",
-    "maplibre-gl": "^4.7.1",
+    "maplibre-gl": "^6.3.0",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
