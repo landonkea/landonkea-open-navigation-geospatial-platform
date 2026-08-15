@@ -27,7 +27,7 @@ jobs:
       # by actually running this workflow via workflow_dispatch after
       # shipping it, not just from the code review).
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Check all live hosts
         id: check
