@@ -62,7 +62,7 @@ jobs:
       # start` does on a real laptop, see OPERATIONS.md's "Local dev,
       # from scratch" section.
       - name: Set up Supabase CLI
-        uses: supabase/setup-cli@v1
+        uses: supabase/setup-cli@v3
         with:
           version: latest
 
