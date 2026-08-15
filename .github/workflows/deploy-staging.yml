@@ -66,3 +66,18 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           command: deploy --config wrangler.staging.toml
+
+      # Reports Core Web Vitals/perf/accessibility scores against the
+      # real, just-deployed staging URL (not a local build, the actual
+      # live thing), same "this reports, it doesn't gate" philosophy as
+      # the CI workflow's own tests: no assertions configured that would
+      # fail this job over a subjective score, this is visibility, not
+      # a blocker, a deliberate choice matching how this repo already
+      # treats CI checks (see ci.yml's own comment on this).
+      - name: Lighthouse CI against the live staging URL
+        uses: treosh/lighthouse-ci-action@v11
+        with:
+          urls: |
+            https://landonkea-open-navigation-geospatial-platform-staging.landon-kea.workers.dev/
+          uploadArtifacts: true
+          temporaryPublicStorage: true

@@ -1,0 +1,85 @@
+# ── Uptime check ──────────────────────────────────────────────────
+# WHAT: pings all three live hosts (dev/Cloudflare Pages, staging/
+# Cloudflare Worker, the GitHub Pages fallback) on a schedule and opens
+# a GitHub issue automatically if any of them stop responding, instead
+# of that only being noticed the next time someone happens to open the
+# app. Auto-closes the issue on the next check once everything's
+# healthy again, so open issues always reflect real, current problems.
+name: Uptime check
+
+on:
+  schedule:
+    - cron: "*/15 * * * *" # every 15 minutes
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all live hosts
+        id: check
+        run: |
+          set -uo pipefail # NOT -e, a failed curl is an expected, handled case here, not a script bug
+
+          declare -A hosts=(
+            ["Dev (Cloudflare Pages)"]="https://landonkea-workingtitle.pages.dev/"
+            ["Staging (Cloudflare Worker)"]="https://landonkea-open-navigation-geospatial-platform-staging.landon-kea.workers.dev/"
+            ["GitHub Pages (fallback)"]="https://landonkea.github.io/landonkea-open-navigation-geospatial-platform/"
+          )
+
+          failures=""
+          for name in "${!hosts[@]}"; do
+            url="${hosts[$name]}"
+            code=$(curl -s -o /dev/null -w "%{http_code}" -L --max-time 15 "$url" || echo "000")
+            echo "$name ($url): HTTP $code"
+            if [ "$code" != "200" ]; then
+              failures="${failures}- **${name}**: HTTP ${code} (${url})\n"
+            fi
+          done
+
+          if [ -n "$failures" ]; then
+            echo "has_failures=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "failures<<EOF"
+              echo -e "$failures"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "has_failures=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Only ever have ONE open uptime issue at a time (matched by the
+      # "uptime" label), re-checking every 15 minutes should update
+      # that one issue's story, not spam a new issue per failed check.
+      - name: Open or update an issue on failure
+        if: steps.check.outputs.has_failures == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          existing=$(gh issue list --label uptime --state open --json number --jq '.[0].number // empty')
+          body="Automated uptime check failed at $(date -u +"%Y-%m-%dT%H:%M:%SZ"):
+
+          ${{ steps.check.outputs.failures }}
+
+          This issue auto-closes once a later check finds everything healthy again."
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Still failing as of $(date -u +"%Y-%m-%dT%H:%M:%SZ"):
+
+          ${{ steps.check.outputs.failures }}"
+          else
+            gh issue create --title "Uptime check failure" --label uptime --body "$body"
+          fi
+
+      - name: Close the uptime issue if everything's healthy again
+        if: steps.check.outputs.has_failures == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          existing=$(gh issue list --label uptime --state open --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "All hosts responded HTTP 200 as of $(date -u +"%Y-%m-%dT%H:%M:%SZ"), closing."
+            gh issue close "$existing"
+          fi

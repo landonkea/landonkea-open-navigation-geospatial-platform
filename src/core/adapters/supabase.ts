@@ -810,3 +810,25 @@ export async function fetchHighlights(rideId: string): Promise<RideHighlight[]> 
   if (error) throw new Error(`Failed to fetch highlights: ${error.message}`);
   return (data ?? []) as RideHighlight[];
 }
+
+/**
+ * Reports an uncaught client-side error/rejection (see
+ * setUpErrorReporting() in main.ts). Write-only from the rider's side,
+ * same trust model as submitFeedback(), no participant/device id
+ * attached. Deliberately swallows its own failures rather than
+ * throwing: a failed error report shouldn't itself become a second,
+ * user-visible error, or worse, an infinite loop if reporting the
+ * failure to report also fails.
+ */
+export async function reportClientError(
+  message: string,
+  stack: string | null,
+  pageUrl: string,
+  userAgent: string,
+): Promise<void> {
+  try {
+    await supabase.from("client_errors").insert({ message, stack, page_url: pageUrl, user_agent: userAgent });
+  } catch {
+    // Best-effort only, see this function's docstring above.
+  }
+}

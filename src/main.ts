@@ -13,6 +13,7 @@ import { startPolling, type PollResult } from "./core/sync";
 import { distanceMetersPlain, signalStatus, staleOpacity, type SignalStatus } from "./core/geo";
 import { formatDistance, formatSpeed, formatTemperatureC } from "./core/units";
 import { copyToClipboardWithFeedback } from "./core/clipboard";
+import { setUpErrorReporting } from "./core/errorReporting";
 import { fetchNearestHospital } from "./core/nearbyHospital";
 import { escapeHtml } from "./core/escapeHtml";
 import type { LngLat } from "./theme/bike/config";
@@ -1174,6 +1175,7 @@ function setUpRosterView(): (participants: RideParticipant[]) => void {
 }
 
 async function main(): Promise<void> {
+  setUpErrorReporting(); // first, so it can catch anything that goes wrong in the rest of main() itself too
   applyBaseStyles();
   registerServiceWorker();
   setUpInstallPrompt();

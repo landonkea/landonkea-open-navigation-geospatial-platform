@@ -12,6 +12,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
     <link rel="manifest" href="/manifest.json" />
+
+    <!-- Open Graph/Twitter card tags, static and generic on purpose:
+         most link-preview crawlers (Slack, iMessage, Twitter/X, etc.)
+         don't execute JavaScript, so these have to be plain HTML
+         present at parse time, the same reasoning as the tags above,
+         and can't vary per-ride the way the page's real <title> does
+         once src/main.ts runs (that would need server-side rendering,
+         which this static app deliberately doesn't have). A generic
+         "here's what this app is" preview beats no preview at all. -->
+    <meta property="og:title" content="Open Navigation & Geospatial Platform" />
+    <meta property="og:description" content="See everyone's live location on a shared map during a group event." />
+    <meta property="og:image" content="/logo-placeholder.svg" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary" />
   </head>
   <body>
     <div id="map"></div>

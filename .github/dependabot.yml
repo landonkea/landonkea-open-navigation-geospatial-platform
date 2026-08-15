@@ -1,0 +1,18 @@
+version: 2
+updates:
+  # App dependencies (package.json), weekly so updates land in small,
+  # reviewable batches instead of one big pile once something breaks.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # The GitHub Actions themselves (actions/checkout@v4 etc. across
+  # every workflow in .github/workflows/), a separate ecosystem from
+  # npm, easy to forget these ever need bumping too.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
