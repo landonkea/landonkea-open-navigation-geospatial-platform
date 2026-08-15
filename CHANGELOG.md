@@ -4,6 +4,7 @@ Generated from commit history via `scripts/generate-changelog.sh`, not hand-main
 
 ## 2026-08-14
 
+- Add CI/DX tooling: Dependabot, uptime monitoring, visual regression, Lighthouse CI, changelog generator, SEO tags, client-side error reporting
 - Fix highlights XSS, recap duration rounding, and staging DB connectivity
 - Add post-ride recap share card and public highlights wall
 - Fix Emergency Info accuracy, duplicate notifications, and dedupe distance math

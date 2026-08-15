@@ -23,9 +23,16 @@
          "here's what this app is" preview beats no preview at all. -->
     <meta property="og:title" content="Open Navigation & Geospatial Platform" />
     <meta property="og:description" content="See everyone's live location on a shared map during a group event." />
-    <meta property="og:image" content="/logo-placeholder.svg" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary" />
+    <!-- No og:image/twitter:image yet, deliberately (found in review):
+         the only image asset that exists is logo-placeholder.svg, and
+         the major crawlers this tag is actually for (Twitter/X,
+         iMessage) don't render SVG for a preview image and expect an
+         absolute URL besides. A preview with no image is honest, a
+         broken/invisible one claiming to work isn't. Add a real
+         og:image once a real raster (PNG/JPG) client logo exists, see
+         bikeTheme.logoUrl's own "placeholder, not real yet" note. -->
   </head>
   <body>
     <div id="map"></div>

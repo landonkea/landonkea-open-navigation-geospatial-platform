@@ -51,26 +51,46 @@ jobs:
             echo "has_failures=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # `gh issue create --label uptime` fails outright if that label
+      # doesn't already exist on the repo (found in review: it doesn't
+      # get auto-created, and nothing in this repo created it before
+      # now), which would have silently broken the very first real
+      # alert. --force makes this a no-op on every later run once the
+      # label already exists, instead of erroring.
+      - name: Ensure the "uptime" label exists
+        if: steps.check.outputs.has_failures == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh label create uptime --color d73a4a --description "Automated uptime check failures" --force
+
       # Only ever have ONE open uptime issue at a time (matched by the
       # "uptime" label), re-checking every 15 minutes should update
       # that one issue's story, not spam a new issue per failed check.
+      #
+      # FAILURES is passed via env:, not spliced into the script text
+      # via ${{ }} (found in review, a known GitHub Actions
+      # script-injection pattern): the host list is hardcoded today so
+      # there's nothing actually exploitable yet, but interpolating a
+      # step output straight into a run: block is unsafe in general,
+      # env: keeps the value as data, never as executed shell text.
       - name: Open or update an issue on failure
         if: steps.check.outputs.has_failures == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          FAILURES: ${{ steps.check.outputs.failures }}
         run: |
           existing=$(gh issue list --label uptime --state open --json number --jq '.[0].number // empty')
-          body="Automated uptime check failed at $(date -u +"%Y-%m-%dT%H:%M:%SZ"):
+          now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Still failing as of ${now}:
 
-          ${{ steps.check.outputs.failures }}
+          ${FAILURES}"
+          else
+            gh issue create --title "Uptime check failure" --label uptime --body "Automated uptime check failed at ${now}:
+
+          ${FAILURES}
 
           This issue auto-closes once a later check finds everything healthy again."
-          if [ -n "$existing" ]; then
-            gh issue comment "$existing" --body "Still failing as of $(date -u +"%Y-%m-%dT%H:%M:%SZ"):
-
-          ${{ steps.check.outputs.failures }}"
-          else
-            gh issue create --title "Uptime check failure" --label uptime --body "$body"
           fi
 
       - name: Close the uptime issue if everything's healthy again

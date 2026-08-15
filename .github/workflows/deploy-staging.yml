@@ -76,6 +76,14 @@ jobs:
       # treats CI checks (see ci.yml's own comment on this).
       - name: Lighthouse CI against the live staging URL
         uses: treosh/lighthouse-ci-action@v11
+        # continue-on-error, matching the comment above (found in
+        # review, it was missing): without this, any action-level
+        # failure (a transient network blip, the just-deployed Worker
+        # not fully propagated yet, the temporary-storage upload
+        # failing) marks the whole job failed even though the real
+        # deploy step already succeeded, misleading anyone watching
+        # job status into thinking the deploy itself broke.
+        continue-on-error: true
         with:
           urls: |
             https://landonkea-open-navigation-geospatial-platform-staging.landon-kea.workers.dev/

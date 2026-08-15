@@ -826,9 +826,19 @@ export async function reportClientError(
   pageUrl: string,
   userAgent: string,
 ): Promise<void> {
+  // supabase-js resolves with { error } for a rejected insert (RLS,
+  // a check constraint) rather than throwing, a try/catch alone never
+  // actually runs for that failure mode (found in review, the
+  // original version's catch block only guarded against a genuine
+  // network-level throw). Still deliberately not re-thrown either
+  // way, see this function's docstring: best-effort only, a failed
+  // error report shouldn't itself become a second, user-visible error.
   try {
-    await supabase.from("client_errors").insert({ message, stack, page_url: pageUrl, user_agent: userAgent });
-  } catch {
-    // Best-effort only, see this function's docstring above.
+    const { error } = await supabase
+      .from("client_errors")
+      .insert({ message, stack, page_url: pageUrl, user_agent: userAgent });
+    if (error) console.warn("Failed to report client error:", error.message);
+  } catch (err) {
+    console.warn("Failed to report client error:", err);
   }
 }
