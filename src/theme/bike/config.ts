@@ -69,6 +69,11 @@ export type EventTheme = {
   // of where the rider is, not a fixed theme value). Null skips the
   // "organizer contact" line, the nearest-hospital lookup still shows.
   emergencyContactInfo: string | null;
+  // Curated emoji a rider can optionally attach to a highlights-wall
+  // post (see setUpHighlightsButton() in main.ts). A fixed short list,
+  // not a full emoji picker, matching riderColors' "curated, not
+  // unlimited" reasoning above.
+  highlightEmoji: string[];
 };
 
 // The actual bike/bikeMesa theme values, this is the one export other
@@ -115,4 +120,6 @@ export const bikeTheme: EventTheme = {
   // yet). Swap for a real name/phone number whenever one's ready, same
   // as logoUrl above.
   emergencyContactInfo: "Ride organizer: see event listing for contact info",
+
+  highlightEmoji: ["🔥", "😂", "💪", "🚴", "😅", "🌅", "🏆"],
 };

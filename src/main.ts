@@ -25,6 +25,8 @@ import {
   fetchRouteForRide,
   leaveRide,
   submitFeedback,
+  submitHighlight,
+  fetchHighlights,
   type RideParticipant,
 } from "./core/adapters/supabase";
 
@@ -117,6 +119,7 @@ function applyBaseStyles(): void {
     #feedback-button { position: absolute; top: 56px; right: 12px; z-index: 10; background: rgba(255,248,225,0.9); border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
     #leave-ride-button { position: absolute; top: 100px; right: 12px; z-index: 10; background: rgba(255,248,225,0.9); border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
     #emergency-info-button { position: absolute; top: 144px; right: 12px; z-index: 10; background: rgba(198,40,40,0.9); color: white; border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
+    #highlights-button { position: absolute; top: 188px; right: 12px; z-index: 10; background: rgba(255,248,225,0.9); border: none; border-radius: 6px; padding: 8px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
     #emergency-info { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
     #emergency-info .card { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-radius: 10px; padding: 24px; max-width: 360px; width: 90%; }
     #emergency-info h2 { margin-top: 0; color: #c62828; }
@@ -135,6 +138,17 @@ function applyBaseStyles(): void {
     #feedback-form button { padding: 10px 16px; font-size: 15px; border: none; border-radius: 6px; cursor: pointer; margin-right: 8px; }
     #feedback-form .submit-btn { background: linear-gradient(135deg, rgba(255,179,71,0.9), rgba(255,126,31,0.9)); color: white; }
     #feedback-form .cancel-btn { background: rgba(255,243,224,0.9); color: #7a4a00; }
+    #highlights-wall { position: absolute; inset: 0; z-index: 20; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
+    #highlights-wall .card { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-radius: 10px; padding: 24px; max-width: 400px; width: 90%; max-height: 80vh; display: flex; flex-direction: column; }
+    #highlights-wall .emoji-row { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+    #highlights-wall .emoji-choice { font-size: 20px; padding: 4px 8px; border-radius: 6px; border: 2px solid transparent; background: rgba(255,255,255,0.6); cursor: pointer; }
+    #highlights-wall .emoji-choice.selected { border-color: #ff7e1f; }
+    #highlights-wall input[type="text"] { width: 100%; box-sizing: border-box; padding: 10px; font-size: 15px; border-radius: 6px; border: 1px solid #ffcc80; margin: 6px 0; font-family: inherit; background: rgba(255, 255, 255, 0.6); }
+    #highlights-wall button { padding: 10px 16px; font-size: 15px; border: none; border-radius: 6px; cursor: pointer; margin-right: 8px; }
+    #highlights-wall .submit-btn { background: linear-gradient(135deg, rgba(255,179,71,0.9), rgba(255,126,31,0.9)); color: white; }
+    #highlights-wall .cancel-btn { background: rgba(255,243,224,0.9); color: #7a4a00; }
+    #highlights-wall .highlight-list { overflow-y: auto; margin-top: 12px; border-top: 1px solid #eee; padding-top: 8px; }
+    #highlights-wall .highlight-item { padding: 6px 0; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
     .confetti-piece { position: fixed; top: -10px; width: 8px; height: 14px; z-index: 30; pointer-events: none; animation: confetti-fall linear forwards; }
     @keyframes confetti-fall { to { transform: translateY(105vh) rotate(720deg); } }
   `;
@@ -658,6 +672,94 @@ function setUpFeedbackButton(rideId: string): void {
 }
 
 /**
+ * Renders a "Highlights" button opening the ride's public highlights
+ * wall: a short list of moments anyone has posted about this ride
+ * (see submitHighlight()/fetchHighlights() in supabase.ts), plus a
+ * small form to post one. Unlike Feedback (private, admin-only), this
+ * is genuinely public, readable by anyone with the ride's link,
+ * that's the whole point of a "wall." Works on an ended ride too, a
+ * highlight is often something someone wants to add after the fact.
+ *
+ * @param rideId - which ride the highlights belong to.
+ */
+function setUpHighlightsButton(rideId: string): void {
+  const button = document.createElement("button");
+  button.id = "highlights-button";
+  button.textContent = "Highlights";
+  document.body.appendChild(button);
+
+  async function renderList(listEl: HTMLDivElement): Promise<void> {
+    listEl.innerHTML = "<p>Loading…</p>";
+    try {
+      const highlights = await fetchHighlights(rideId);
+      listEl.innerHTML =
+        highlights.length === 0
+          ? "<p>No highlights yet, be the first!</p>"
+          : highlights
+              .map((h) => `<div class="highlight-item">${h.emoji ? `${h.emoji} ` : ""}${escapeHtml(h.message)}</div>`)
+              .join("");
+    } catch (err) {
+      listEl.innerHTML = `<p class="error">${escapeHtml(err instanceof Error ? err.message : String(err))}</p>`;
+    }
+  }
+
+  button.addEventListener("click", () => {
+    const overlay = document.createElement("div");
+    overlay.id = "highlights-wall";
+    overlay.innerHTML = `
+      <div class="card">
+        <h2>Highlights</h2>
+        <div class="emoji-row">
+          ${bikeTheme.highlightEmoji.map((e) => `<button type="button" class="emoji-choice" data-emoji="${e}">${e}</button>`).join("")}
+        </div>
+        <input type="text" maxlength="200" placeholder="What happened?" />
+        <p class="error"></p>
+        <div>
+          <button class="submit-btn">Post</button>
+          <button class="cancel-btn">Close</button>
+        </div>
+        <div class="highlight-list"></div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    let selectedEmoji: string | null = null;
+    overlay.querySelectorAll<HTMLButtonElement>(".emoji-choice").forEach((emojiButton) => {
+      emojiButton.addEventListener("click", () => {
+        const isAlreadySelected = emojiButton.classList.contains("selected");
+        overlay.querySelectorAll(".emoji-choice").forEach((b) => b.classList.remove("selected"));
+        selectedEmoji = isAlreadySelected ? null : emojiButton.dataset.emoji ?? null; // clicking the same one again deselects it
+        if (selectedEmoji) emojiButton.classList.add("selected");
+      });
+    });
+
+    const listEl = overlay.querySelector(".highlight-list") as HTMLDivElement;
+    renderList(listEl);
+
+    overlay.querySelector(".cancel-btn")!.addEventListener("click", () => overlay.remove());
+    overlay.querySelector(".submit-btn")!.addEventListener("click", async () => {
+      const input = overlay.querySelector("input") as HTMLInputElement;
+      const errorEl = overlay.querySelector(".error") as HTMLParagraphElement;
+      const message = input.value.trim();
+      if (!message) {
+        errorEl.textContent = "Type something first.";
+        return;
+      }
+      try {
+        await submitHighlight(rideId, message, selectedEmoji);
+        input.value = "";
+        errorEl.textContent = "";
+        overlay.querySelectorAll(".emoji-choice").forEach((b) => b.classList.remove("selected"));
+        selectedEmoji = null;
+        renderList(listEl); // show the new post immediately instead of making them reopen the wall
+      } catch (err) {
+        errorEl.textContent = err instanceof Error ? err.message : String(err);
+      }
+    });
+  });
+}
+
+/**
  * Renders a "Leave Ride" button. Deliberately generic/small: it only
  * handles the button itself (click, disabled/loading state, removing
  * itself once done), the actual leaving logic (stop polling, release
@@ -1147,6 +1249,7 @@ async function main(): Promise<void> {
   setUpShareButton(ride.name); // build prompt's "social sharing links", native share sheet, no per-platform links needed
   setUpFeedbackButton(rideId); // in-app replacement for the originally-planned external feedback form
   setUpEmergencyInfoButton(); // works for both riders and spectators, doesn't depend on the route below
+  setUpHighlightsButton(rideId); // public wall, works for both riders and spectators too
 
   // Draw the ride's planned route, if it has one uploaded (a "no
   // fixed route" ride, per the build prompt, is valid too, in which

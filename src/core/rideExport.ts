@@ -35,7 +35,10 @@ function escapeXmlText(value: string): string {
  * them, sorted oldest-first within each group so a track's points
  * connect in the order they actually happened.
  */
-function groupByParticipant(samples: HistorySample[]): Map<string, HistorySample[]> {
+// Exported (not just used internally here) so rideRecap.ts's distance
+// computation can group the exact same way instead of re-implementing
+// the same grouping/sorting logic a second time.
+export function groupByParticipant(samples: HistorySample[]): Map<string, HistorySample[]> {
   const groups = new Map<string, HistorySample[]>();
   for (const sample of samples) {
     const existing = groups.get(sample.participantId);

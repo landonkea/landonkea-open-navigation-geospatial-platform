@@ -31,6 +31,8 @@ import { escapeHtml } from "./core/escapeHtml";
 import { parseHistoryCsv, parseRouteCsv } from "./core/csvImport";
 import { createMap, setRouteLayer } from "./core/map";
 import { samplesToCsv, samplesToGpx } from "./core/rideExport";
+import { computeRideRecapStats, type RideRecapStats } from "./core/rideRecap";
+import { formatDistance } from "./core/units";
 import { bikeTheme } from "./theme/bike/config";
 import QRCode from "qrcode";
 
@@ -444,6 +446,20 @@ function buildRideListItem(ride: Ride, adminUserId: string, onChanged: (newRide?
   });
   actions.appendChild(csvButton);
 
+  const recapButton = document.createElement("button");
+  recapButton.textContent = "Recap Card";
+  recapButton.addEventListener("click", async () => {
+    try {
+      const samples = await fetchHistorySamples(ride.id);
+      const stats = computeRideRecapStats(samples, ride.started_at, ride.ended_at);
+      const canvas = drawRecapCard(ride.name, stats);
+      downloadCanvasAsPng(canvas, `${safeFileNamePart}-recap.png`);
+    } catch (err) {
+      showItemError(err);
+    }
+  });
+  actions.appendChild(recapButton);
+
   // Import: the inverse of the export buttons above, populates
   // ride_history_samples from an uploaded file instead of downloading
   // it, real use case is loading realistic pre-recorded test/demo
@@ -830,6 +846,99 @@ function downloadTextFile(filename: string, content: string, mimeType: string): 
   link.download = filename;
   link.click();
   URL.revokeObjectURL(url); // release the in-memory file now that the download has started
+}
+
+/**
+ * Triggers a browser download of a canvas's current contents as a
+ * PNG, same "never needs a server round trip" mechanic as
+ * downloadTextFile() above, just for image data (canvas.toBlob())
+ * instead of a plain string.
+ */
+function downloadCanvasAsPng(canvas: HTMLCanvasElement, filename: string): void {
+  canvas.toBlob((blob) => {
+    if (!blob) return; // toBlob can hand back null on a genuine encoder failure, nothing sensible to download then
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  }, "image/png");
+}
+
+/**
+ * Draws a shareable post-ride recap image: the ride's name, total
+ * distance covered (summed across every rider's real recorded
+ * movement, see computeRideRecapStats()), how many riders showed up,
+ * and how long the ride ran. Same sunburst-orange brand gradient as
+ * the rest of the app, meant to look like something worth actually
+ * sharing, not a plain data dump.
+ *
+ * @returns an off-screen canvas (never attached to the page, just
+ *   handed to downloadCanvasAsPng()) with the finished image drawn.
+ */
+function drawRecapCard(rideName: string, stats: RideRecapStats): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = 800;
+  canvas.height = 500;
+  const ctx = canvas.getContext("2d")!;
+
+  const gradient = ctx.createLinearGradient(0, 0, 800, 500);
+  gradient.addColorStop(0, "#ffb347");
+  gradient.addColorStop(1, "#ff7e1f");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 800, 500);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "center";
+
+  ctx.font = "bold 40px system-ui, sans-serif";
+  wrapText(ctx, rideName, 400, 90, 700, 46);
+
+  const durationLabel =
+    stats.durationMs === null
+      ? "—"
+      : `${Math.round(stats.durationMs / 60000 / 60)
+          .toString()
+          .padStart(1, "0")}h ${Math.round((stats.durationMs / 60000) % 60)}m`;
+
+  const rows: [string, string][] = [
+    ["Distance covered", formatDistance(stats.totalDistanceMeters, bikeTheme.unitSystem)],
+    [`${bikeTheme.participantWord[0].toUpperCase()}${bikeTheme.participantWord.slice(1)}s`, String(stats.riderCount)],
+    ["Duration", durationLabel],
+  ];
+
+  let y = 220;
+  for (const [label, value] of rows) {
+    ctx.font = "bold 56px system-ui, sans-serif";
+    ctx.fillText(value, 400, y);
+    ctx.font = "20px system-ui, sans-serif";
+    ctx.fillText(label.toUpperCase(), 400, y + 32);
+    y += 100;
+  }
+
+  ctx.font = "16px system-ui, sans-serif";
+  ctx.fillText(`Open Navigation & Geospatial Platform`, 400, 470);
+
+  return canvas;
+}
+
+/** Wraps a long ride name across multiple centered lines instead of overflowing/getting clipped on a single one. */
+function wrapText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number): void {
+  const words = text.split(" ");
+  let line = "";
+  let lineY = y;
+  for (const word of words) {
+    const testLine = line ? `${line} ${word}` : word;
+    if (ctx.measureText(testLine).width > maxWidth && line) {
+      ctx.fillText(line, x, lineY);
+      line = word;
+      lineY += lineHeight;
+    } else {
+      line = testLine;
+    }
+  }
+  ctx.fillText(line, x, lineY);
 }
 
 /**

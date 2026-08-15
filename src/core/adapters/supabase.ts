@@ -774,3 +774,39 @@ export async function fetchFeedback(rideId: string): Promise<Feedback[]> {
   if (error) throw new Error(`Failed to fetch feedback: ${error.message}`);
   return (data ?? []) as Feedback[];
 }
+
+export type RideHighlight = {
+  id: number;
+  ride_id: string;
+  message: string;
+  emoji: string | null;
+  created_at: string;
+};
+
+/**
+ * Posts a highlight/moment for a ride, publicly readable by anyone
+ * with the ride's link (see the migration's docs for why this is NOT
+ * anonymous the way feedback is, there's no identity here to strip in
+ * the first place, a highlight is meant to be read by other riders).
+ */
+export async function submitHighlight(rideId: string, message: string, emoji: string | null): Promise<void> {
+  const { error } = await supabase.from("ride_highlights").insert({ ride_id: rideId, message, emoji });
+  if (error) throw new Error(`Failed to post highlight: ${error.message}`);
+}
+
+/**
+ * Fetches every highlight for a ride, newest first. Public, matches
+ * the "anyone can read highlights of a ride they have the id for" RLS
+ * policy, unlike fetchFeedback() above this is called from the
+ * rider-facing app (main.ts), not just the admin panel.
+ */
+export async function fetchHighlights(rideId: string): Promise<RideHighlight[]> {
+  const { data, error } = await supabase
+    .from("ride_highlights")
+    .select("*")
+    .eq("ride_id", rideId)
+    .order("created_at", { ascending: false });
+
+  if (error) throw new Error(`Failed to fetch highlights: ${error.message}`);
+  return (data ?? []) as RideHighlight[];
+}
