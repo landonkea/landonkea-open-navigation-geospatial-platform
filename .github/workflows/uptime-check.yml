@@ -19,6 +19,16 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
+      # Needed even though this job never reads any source file: `gh`
+      # infers which repository to target from the local git checkout,
+      # and with no checkout step at all (this workflow doesn't
+      # otherwise need the repo's files) every gh issue/label command
+      # below failed outright with "fatal: not a git repository" (found
+      # by actually running this workflow via workflow_dispatch after
+      # shipping it, not just from the code review).
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
       - name: Check all live hosts
         id: check
         run: |
