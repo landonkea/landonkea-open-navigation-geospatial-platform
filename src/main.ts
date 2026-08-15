@@ -696,7 +696,16 @@ function setUpHighlightsButton(rideId: string): void {
         highlights.length === 0
           ? "<p>No highlights yet, be the first!</p>"
           : highlights
-              .map((h) => `<div class="highlight-item">${h.emoji ? `${h.emoji} ` : ""}${escapeHtml(h.message)}</div>`)
+              // escapeHtml() on emoji too, not just message (found in
+              // review): the "curated set" the picker offers is only
+              // enforced client-side, the migration's INSERT policy is
+              // `with check (true)`, so anyone posting directly to the
+              // REST API (same trust model as every other write in this
+              // schema) can put anything in that column, and it renders
+              // on a page anyone with the ride's link can open, exactly
+              // the stored-XSS shape OPERATIONS.md bug #15 already
+              // burned this project on once for ride names.
+              .map((h) => `<div class="highlight-item">${h.emoji ? `${escapeHtml(h.emoji)} ` : ""}${escapeHtml(h.message)}</div>`)
               .join("");
     } catch (err) {
       listEl.innerHTML = `<p class="error">${escapeHtml(err instanceof Error ? err.message : String(err))}</p>`;

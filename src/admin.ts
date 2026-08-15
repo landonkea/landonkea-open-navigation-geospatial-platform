@@ -28,10 +28,11 @@ import {
 import { parseGpx, parseGpxTrackPoints } from "./core/gpx";
 import { copyToClipboardWithFeedback } from "./core/clipboard";
 import { escapeHtml } from "./core/escapeHtml";
+import { capitalize } from "./core/capitalize";
 import { parseHistoryCsv, parseRouteCsv } from "./core/csvImport";
 import { createMap, setRouteLayer } from "./core/map";
 import { samplesToCsv, samplesToGpx } from "./core/rideExport";
-import { computeRideRecapStats, type RideRecapStats } from "./core/rideRecap";
+import { computeRideRecapStats, formatDuration, type RideRecapStats } from "./core/rideRecap";
 import { formatDistance } from "./core/units";
 import { bikeTheme } from "./theme/bike/config";
 import QRCode from "qrcode";
@@ -895,17 +896,10 @@ function drawRecapCard(rideName: string, stats: RideRecapStats): HTMLCanvasEleme
   ctx.font = "bold 40px system-ui, sans-serif";
   wrapText(ctx, rideName, 400, 90, 700, 46);
 
-  const durationLabel =
-    stats.durationMs === null
-      ? "—"
-      : `${Math.round(stats.durationMs / 60000 / 60)
-          .toString()
-          .padStart(1, "0")}h ${Math.round((stats.durationMs / 60000) % 60)}m`;
-
   const rows: [string, string][] = [
     ["Distance covered", formatDistance(stats.totalDistanceMeters, bikeTheme.unitSystem)],
-    [`${bikeTheme.participantWord[0].toUpperCase()}${bikeTheme.participantWord.slice(1)}s`, String(stats.riderCount)],
-    ["Duration", durationLabel],
+    [`${capitalize(bikeTheme.participantWord)}s`, String(stats.riderCount)],
+    ["Duration", formatDuration(stats.durationMs)],
   ];
 
   let y = 220;

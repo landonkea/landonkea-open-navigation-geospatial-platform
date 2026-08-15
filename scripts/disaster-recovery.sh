@@ -111,7 +111,14 @@ apply_all_migrations() {
   local db_password="$2"
   echo "── Applying all migrations to $ref ──"
   for f in supabase/migrations/*.sql; do
-    PGPASSWORD="$db_password" psql -h "db.${ref}.supabase.co" -p 5432 -U postgres -d postgres -v ON_ERROR_STOP=1 -f "$f"
+    # The session pooler, not the direct db.<ref>.supabase.co host
+    # (found 2026-08-14, see scripts/apply-migration.sh's own comment
+    # on this): that direct hostname is IPv6-only, and plenty of
+    # environments (this one included) have no IPv6 egress at all.
+    # The pooler is dual-stack and reliable everywhere this project
+    # has actually tested it. Region is hardcoded to match
+    # create_supabase_project()'s own "us-west-1" above.
+    PGPASSWORD="$db_password" psql -h aws-0-us-west-1.pooler.supabase.com -p 5432 -U "postgres.${ref}" -d postgres -v ON_ERROR_STOP=1 -f "$f"
   done
 }
 apply_all_migrations "$PROD_REF" "$PROD_DB_PASSWORD"
@@ -137,7 +144,10 @@ PROD_URL="https://${PROD_REF}.supabase.co"
 STAGING_URL="https://${STAGING_REF}.supabase.co"
 
 create_admin_user() {
-  local api_url="$1" service_key="$2" db_host="$3" db_password="$4" email="$5"
+  # $3 is the project ref, not a full host (changed 2026-08-14, see
+  # apply_all_migrations()'s comment above for why this uses the
+  # pooler, not a direct db.<ref>.supabase.co host).
+  local api_url="$1" service_key="$2" ref="$3" db_password="$4" email="$5"
   local password
   password=$(python3 -c "import secrets; print(secrets.token_urlsafe(16))")
   local response
@@ -146,14 +156,14 @@ create_admin_user() {
     -d "{\"email\":\"$email\",\"password\":\"$password\",\"email_confirm\":true}")
   local user_id
   user_id=$(echo "$response" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
-  PGPASSWORD="$db_password" psql -h "$db_host" -p 5432 -U postgres -d postgres -v ON_ERROR_STOP=1 \
+  PGPASSWORD="$db_password" psql -h aws-0-us-west-1.pooler.supabase.com -p 5432 -U "postgres.${ref}" -d postgres -v ON_ERROR_STOP=1 \
     -c "insert into admin_roles (user_id) values ('$user_id');"
   echo "Admin created: $email / $password (save this, shown once)"
 }
 
 echo "── Creating admin accounts ──"
-create_admin_user "$PROD_URL" "$PROD_SERVICE_KEY" "db.${PROD_REF}.supabase.co" "$PROD_DB_PASSWORD" "admin@${REPO_NAME}.recovered"
-create_admin_user "$STAGING_URL" "$STAGING_SERVICE_KEY" "db.${STAGING_REF}.supabase.co" "$STAGING_DB_PASSWORD" "staging-admin@${REPO_NAME}.recovered"
+create_admin_user "$PROD_URL" "$PROD_SERVICE_KEY" "$PROD_REF" "$PROD_DB_PASSWORD" "admin@${REPO_NAME}.recovered"
+create_admin_user "$STAGING_URL" "$STAGING_SERVICE_KEY" "$STAGING_REF" "$STAGING_DB_PASSWORD" "staging-admin@${REPO_NAME}.recovered"
 
 echo "── Creating GitHub repo and pushing code ──"
 gh repo create "$OWNER/$REPO_NAME" --private --source=. --remote=origin --push

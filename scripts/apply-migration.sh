@@ -47,7 +47,14 @@ case "$TARGET" in
     export PGPASSWORD="postgres" # supabase CLI's fixed local-only default
     ;;
   staging)
-    PSQL_ARGS=(-h db.pepjyqfitgpugahtygol.supabase.co -p 5432 -U postgres -d postgres)
+    # The session pooler, not the direct db.<ref>.supabase.co host
+    # (found 2026-08-14): that direct hostname resolves to an
+    # IPv6-only address, and this environment (and possibly others)
+    # has no IPv6 egress at all, "No route to host" even with the
+    # address hardcoded. The pooler host is dual-stack and already
+    # proven reliable here, same one prod's config below uses, just
+    # with staging's own project-ref-suffixed username.
+    PSQL_ARGS=(-h aws-0-us-west-1.pooler.supabase.com -p 5432 -U postgres.pepjyqfitgpugahtygol -d postgres)
     export PGPASSWORD="${SUPABASE_STAGING_DB_PASSWORD:?SUPABASE_STAGING_DB_PASSWORD not set in .env.local}"
     ;;
   prod)

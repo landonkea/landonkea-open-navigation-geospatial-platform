@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeRideRecapStats } from "../rideRecap";
+import { computeRideRecapStats, formatDuration } from "../rideRecap";
 import type { HistorySample } from "../rideExport";
 
 function sample(participantId: string, lat: number, lng: number, recordedAt: string): HistorySample {
@@ -40,5 +40,26 @@ describe("computeRideRecapStats", () => {
   it("returns a null duration when the ride never started or never ended", () => {
     expect(computeRideRecapStats([], null, "2026-01-01T01:00:00Z").durationMs).toBeNull();
     expect(computeRideRecapStats([], "2026-01-01T00:00:00Z", null).durationMs).toBeNull();
+  });
+});
+
+describe("formatDuration", () => {
+  it("formats an exact number of hours and minutes", () => {
+    expect(formatDuration(90 * 60 * 1000)).toBe("1h 30m");
+  });
+
+  it("shows the dash placeholder for a null duration", () => {
+    expect(formatDuration(null)).toBe("—");
+  });
+
+  it("carries a rounded-up minute into the hour instead of showing '60m' (regression test, found in review)", () => {
+    // 1h59m40s: independently rounding hours (2) and minutes (60) used
+    // to produce the invalid "2h 60m", this must read "2h 0m" instead.
+    const durationMs = (1 * 60 * 60 + 59 * 60 + 40) * 1000;
+    expect(formatDuration(durationMs)).toBe("2h 0m");
+  });
+
+  it("rounds a whole minute up correctly without a carry needed", () => {
+    expect(formatDuration(29 * 60 * 1000 + 45 * 1000)).toBe("0h 30m"); // 29m45s rounds up to 30m
   });
 });

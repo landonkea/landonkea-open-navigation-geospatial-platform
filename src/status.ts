@@ -8,12 +8,9 @@
 import { bikeTheme } from "./theme/bike/config";
 import { fetchStatusSummary } from "./core/adapters/supabase";
 import { escapeHtml } from "./core/escapeHtml";
+import { capitalize } from "./core/capitalize";
 
 const REFRESH_INTERVAL_MS = 30_000;
-
-function capitalize(word: string): string {
-  return word[0].toUpperCase() + word.slice(1);
-}
 
 const PAGE_TITLE = `${capitalize(bikeTheme.eventWordSingular)} platform status`;
 

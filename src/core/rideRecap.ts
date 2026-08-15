@@ -45,3 +45,17 @@ export function computeRideRecapStats(
 
   return { totalDistanceMeters, riderCount: groups.size, durationMs };
 }
+
+/**
+ * Formats a duration as "<hours>h <minutes>m" (or "—" for null).
+ * Rounds to a whole minute ONCE and derives hours/minutes from that
+ * single integer (found in review: rounding hours and minutes
+ * independently could each round up separately with nothing to carry
+ * the overflow, producing a label like "2h 60m" for a ride lasting
+ * 1h59m40s instead of the correct "2h 0m").
+ */
+export function formatDuration(durationMs: number | null): string {
+  if (durationMs === null) return "—";
+  const totalMinutes = Math.round(durationMs / 60000);
+  return `${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m`;
+}
