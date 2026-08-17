@@ -39,6 +39,23 @@ const STREET_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 // no need to fetch an external style.json for something this simple.
 const SATELLITE_STYLE: maplibregl.StyleSpecification = {
   version: 8, // MapLibre/Mapbox style spec version, 8 is the current one
+  // WITHOUT THIS, every symbol layer that uses "text-field" fails MapLibre's
+  // own style validation outright (addLayer() rejects it, logs a console
+  // error, the layer never renders) the moment this style is active, which
+  // is the app's DEFAULT view (see createMap()'s "satellite" initialView in
+  // main.ts). That's setParticipantLayer()'s "cluster-count" layer (the
+  // rider-count number on a cluster bubble) AND "unclustered-point-icon"
+  // (the colorblind-accessible ●/▲/✕ status glyph riding on top of each
+  // dot, this map module's own comment on that layer explains why it can't
+  // just be "color alone"). Confirmed missing directly: ran the real e2e
+  // suite and found MapLibre logging "use of text-field requires a style
+  // glyphs property" on every single poll cycle, both layers silently
+  // never added. Same glyphs endpoint the street style already resolves to
+  // (https://tiles.openfreemap.org/styles/liberty's own "glyphs" field),
+  // reused here rather than a new dependency, confirmed live and serving a
+  // real font (HTTP 200, "Noto Sans Regular/0-255.pbf") before relying on
+  // it.
+  glyphs: "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
   sources: {
     satellite: {
       type: "raster", // photographic tiles, not vector map data
