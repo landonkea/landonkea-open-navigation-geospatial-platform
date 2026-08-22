@@ -75,7 +75,7 @@ jobs:
       # a blocker, a deliberate choice matching how this repo already
       # treats CI checks (see ci.yml's own comment on this).
       - name: Lighthouse CI against the live staging URL
-        uses: treosh/lighthouse-ci-action@v11
+        uses: treosh/lighthouse-ci-action@v12
         # continue-on-error, matching the comment above (found in
         # review, it was missing): without this, any action-level
         # failure (a transient network blip, the just-deployed Worker
